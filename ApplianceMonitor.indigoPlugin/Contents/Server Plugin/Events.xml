@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Events>
+
+    <!-- ============================================================
+         Each event takes a single config field: which applianceMonitor
+         device the trigger should listen to. Use these to fire Pushover
+         (or any other action) from Indigo triggers.
+         ============================================================ -->
+
+    <Event id="cycleStarted">
+        <Name>Appliance Monitor: Cycle Started</Name>
+        <ConfigUI>
+            <Field id="instructions" type="label" fontSize="small">
+                <Label>Fires when the appliance transitions from idle to running.</Label>
+            </Field>
+            <Field id="applianceDevice" type="menu">
+                <Label>Appliance:</Label>
+                <List class="indigo.devices" filter="self.applianceMonitor"/>
+            </Field>
+        </ConfigUI>
+    </Event>
+
+    <Event id="doorReady">
+        <Name>Appliance Monitor: Door Ready</Name>
+        <ConfigUI>
+            <Field id="instructions" type="label" fontSize="small">
+                <Label>Fires once the door-ready delay has elapsed after cycle end (e.g. 2 minutes for a washing machine).</Label>
+            </Field>
+            <Field id="applianceDevice" type="menu">
+                <Label>Appliance:</Label>
+                <List class="indigo.devices" filter="self.applianceMonitor"/>
+            </Field>
+        </ConfigUI>
+    </Event>
+
+    <Event id="socketReminder">
+        <Name>Appliance Monitor: Socket-Off Reminder</Name>
+        <ConfigUI>
+            <Field id="instructions" type="label" fontSize="small">
+                <Label>Fires once the socket-reminder delay has elapsed after cycle end (e.g. 30 minutes), if no new cycle has started in the meantime. Use to prompt switching off a manual wall socket.</Label>
+            </Field>
+            <Field id="applianceDevice" type="menu">
+                <Label>Appliance:</Label>
+                <List class="indigo.devices" filter="self.applianceMonitor"/>
+            </Field>
+        </ConfigUI>
+    </Event>
+
+</Events>

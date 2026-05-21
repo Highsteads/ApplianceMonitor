@@ -1,0 +1,149 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Devices>
+
+    <!-- ============================================================
+         Appliance Monitor device (applianceMonitor)
+
+         Watches the powerWatts state of a chosen source device (a Shelly
+         or any other power-monitoring device) and runs a small state
+         machine to detect cycle start / end. Fires three custom events:
+           - cycleStarted    (transition idle -> running)
+           - doorReady       (T+doorDelayMinutes after cycle end)
+           - socketReminder  (T+socketReminderMinutes after cycle end,
+                              only if no new cycle has started)
+         ============================================================ -->
+    <Device type="custom" id="applianceMonitor">
+        <Name>Appliance Monitor</Name>
+        <ConfigUI>
+
+            <Field id="instructions" type="label" fontSize="small">
+                <Label>Pick the device whose power draw signals when this appliance is running (e.g. the Shelly that meters the washing machine). Defaults below suit a washing machine; tweak for other appliances.</Label>
+            </Field>
+
+            <Field id="sourceDeviceId" type="menu">
+                <Label>Power meter device:</Label>
+                <List class="indigo.devices"/>
+            </Field>
+
+            <Field id="sourceStateKey" type="textfield" defaultValue="powerWatts">
+                <Label>Power state name:</Label>
+                <Description>State key on the source device that reports watts. Shelly plugin uses "powerWatts".</Description>
+            </Field>
+
+            <Field id="separator1" type="separator"/>
+
+            <Field id="runThresholdWatts" type="textfield" defaultValue="5.0">
+                <Label>Run threshold (W):</Label>
+                <Description>Power at or above this value means the appliance is drawing real power (running).</Description>
+            </Field>
+
+            <Field id="idleThresholdWatts" type="textfield" defaultValue="2.0">
+                <Label>Idle threshold (W):</Label>
+                <Description>Power below this value means the appliance is idle (cycle may have ended).</Description>
+            </Field>
+
+            <Field id="debounceMinutes" type="textfield" defaultValue="3">
+                <Label>End-of-cycle debounce (min):</Label>
+                <Description>How long power must stay below the idle threshold before the cycle is declared ended. Avoids false ends during mid-cycle quiet phases.</Description>
+            </Field>
+
+            <Field id="separator2" type="separator"/>
+
+            <Field id="doorDelayMinutes" type="textfield" defaultValue="2">
+                <Label>Door-ready delay (min):</Label>
+                <Description>Fires the doorReady event this long after cycle end. Set to the appliance's door-lock release delay.</Description>
+            </Field>
+
+            <Field id="socketReminderMinutes" type="textfield" defaultValue="30">
+                <Label>Socket-reminder delay (min):</Label>
+                <Description>Fires the socketReminder event this long after cycle end if no new cycle has started. Use this to prompt yourself to switch off a manual wall socket.</Description>
+            </Field>
+
+            <Field id="separator3" type="separator"/>
+
+            <Field id="pushoverHeader" type="label" fontColor="darkgray">
+                <Label>Pushover notifications (sent directly by this plugin in addition to firing the matching Indigo event):</Label>
+            </Field>
+
+            <Field id="notifyCycleStarted" type="checkbox" defaultValue="false">
+                <Label>Notify on cycle start:</Label>
+                <Description>Send a Pushover when the appliance begins drawing power. Off by default — usually only useful when calibrating.</Description>
+            </Field>
+
+            <Field id="notifyDoorReady" type="checkbox" defaultValue="true">
+                <Label>Notify on door ready:</Label>
+            </Field>
+
+            <Field id="notifySocketReminder" type="checkbox" defaultValue="true">
+                <Label>Notify on socket reminder:</Label>
+            </Field>
+
+            <Field id="pushoverPriority" type="menu" defaultValue="0">
+                <Label>Pushover priority:</Label>
+                <List>
+                    <Option value="-2">No notification</Option>
+                    <Option value="-1">Silent</Option>
+                    <Option value="0">Normal</Option>
+                    <Option value="1">High</Option>
+                    <Option value="2">Emergency</Option>
+                </List>
+            </Field>
+
+            <Field id="pushoverSound" type="textfield" defaultValue="vibrate">
+                <Label>Pushover sound:</Label>
+                <Description>"vibrate" for silent buzz (default), "pushover" for the standard tone, or any Pushover API sound name.</Description>
+            </Field>
+
+            <Field id="pushoverUserToken" type="textfield" defaultValue="">
+                <Label>Pushover user token (optional):</Label>
+                <Description>Leave blank to use the default user configured in the Pushover plugin.</Description>
+            </Field>
+
+        </ConfigUI>
+
+        <States>
+            <State id="cycleState">
+                <ValueType>String</ValueType>
+                <TriggerLabel>Cycle state changes</TriggerLabel>
+                <ControlPageLabel>Cycle State</ControlPageLabel>
+            </State>
+            <State id="currentWatts">
+                <ValueType>Number</ValueType>
+                <TriggerLabel>Current watts changes</TriggerLabel>
+                <ControlPageLabel>Current Watts</ControlPageLabel>
+            </State>
+            <State id="cycleStartedAt">
+                <ValueType>Integer</ValueType>
+                <TriggerLabel>Cycle start time changes</TriggerLabel>
+                <ControlPageLabel>Cycle Started (epoch)</ControlPageLabel>
+            </State>
+            <State id="cycleFinishedAt">
+                <ValueType>Integer</ValueType>
+                <TriggerLabel>Cycle finish time changes</TriggerLabel>
+                <ControlPageLabel>Cycle Finished (epoch)</ControlPageLabel>
+            </State>
+            <State id="lowSince">
+                <ValueType>Integer</ValueType>
+                <TriggerLabel>Low-power timestamp changes</TriggerLabel>
+                <ControlPageLabel>Low Since (epoch)</ControlPageLabel>
+            </State>
+            <State id="lastCycleMinutes">
+                <ValueType>Integer</ValueType>
+                <TriggerLabel>Last cycle minutes changes</TriggerLabel>
+                <ControlPageLabel>Last Cycle (min)</ControlPageLabel>
+            </State>
+            <State id="doorNotified">
+                <ValueType>Boolean</ValueType>
+                <TriggerLabel>Door notified flag changes</TriggerLabel>
+                <ControlPageLabel>Door Notified</ControlPageLabel>
+            </State>
+            <State id="socketNotified">
+                <ValueType>Boolean</ValueType>
+                <TriggerLabel>Socket notified flag changes</TriggerLabel>
+                <ControlPageLabel>Socket Notified</ControlPageLabel>
+            </State>
+        </States>
+        <UiDisplayStateId>cycleState</UiDisplayStateId>
+    </Device>
+
+</Devices>

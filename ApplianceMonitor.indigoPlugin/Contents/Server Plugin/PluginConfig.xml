@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PluginConfig>
+
+    <Field id="info" type="label" fontSize="small">
+        <Label>Appliance Monitor has no plugin-wide configuration. Per-appliance settings are on each Appliance Monitor device (Indigo Devices &gt; New Device &gt; Appliance Monitor).</Label>
+    </Field>
+
+    <Field id="debug" type="checkbox" defaultValue="false">
+        <Label>Verbose debug logging:</Label>
+        <Description>Log every tick of the state machine. Useful when calibrating thresholds for a new appliance.</Description>
+    </Field>
+
+</PluginConfig>
