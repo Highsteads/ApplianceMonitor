@@ -107,6 +107,19 @@ These are also available inside the Pushover body template via the
 - A device that exposes a watts state — ShellyDirect, Shelly Gen1,
   Z-Wave power meters, etc.
 
+## Logging
+
+Every log line is prefixed with a millisecond timestamp `[HH:MM:SS.mmm]` so
+events can be correlated tightly with other CliveS plugins (Device Activity
+Monitor uses the same convention).
+
+To turn the prefix off (or back on) at any time:
+
+**Plugins → Appliance Monitor → Toggle Timestamps in Log (on/off)**
+
+The setting is stored in `pluginPrefs` (`timestampEnabled`) and persists across
+restarts. Defaults to ON.
+
 ## Credits
 
 Author: CliveS & Claude Opus 4.7
