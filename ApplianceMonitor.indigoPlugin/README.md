@@ -69,6 +69,7 @@ Create one Appliance Monitor device per appliance:
 | Pushover priority | -2/-1/0/1/2 (Pushover API values) | `0` |
 | Pushover sound | Pushover sound name (`vibrate` for silent buzz) | `vibrate` |
 | Pushover user token | Override Pushover plugin default user (optional) | — |
+| Energy state name | State on the meter that reports a running kWh counter (e.g. `energyKwhToday`). Leave blank to skip per-cycle kWh capture | `energyKwhToday` |
 
 The plugin sends Pushover itself via the Pushover plugin
 (`io.thechad.indigoplugin.pushover`) — no Indigo triggers needed for the
@@ -85,6 +86,20 @@ Pushover toggles.
 
 Adjust the thresholds for your appliance by watching the Shelly's
 `powerWatts` during a full cycle and noting the floor and active draw.
+
+## Per-cycle metrics (v1.2+)
+
+At the end of every cycle the plugin writes two extra device states so you
+can use them on control pages, in triggers, or for solar/energy automations:
+
+| State | What it captures |
+|---|---|
+| `lastCyclePeakWatts` | Maximum watts seen during the cycle (e.g. heater peak) |
+| `lastCycleEnergyKwh` | kWh consumed during the cycle, taken as the delta on the source meter's energy counter (default `energyKwhToday`). Set to 0 on midnight rollover or if the meter has no counter. |
+
+These are also available inside the Pushover body template via the
+`{peakW}` and `{kwh}` placeholders if you want to customise the message
+(the default templates ignore them for backward compatibility).
 
 ## Requirements
 

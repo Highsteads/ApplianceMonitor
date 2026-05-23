@@ -6,8 +6,8 @@
 #              notifications directly and also fires three Indigo custom
 #              events: cycleStarted, doorReady, socketReminder.
 # Author:      CliveS & Claude Opus 4.7
-# Date:        18-05-2026
-# Version:     1.1.0
+# Date:        23-05-2026
+# Version:     1.2.0
 
 try:
     import indigo
@@ -31,7 +31,7 @@ except ImportError:
 # ============================================================
 
 PLUGIN_ID       = "com.clives.indigoplugin.appliancemonitor"
-PLUGIN_VERSION  = "1.1.0"
+PLUGIN_VERSION  = "1.2.0"
 PUSHOVER_PLUGIN = "io.thechad.indigoplugin.pushover"
 TICK_SECONDS    = 20
 
@@ -72,6 +72,8 @@ class Plugin(indigo.PluginBase):
         self.debug           = pluginPrefs.get("debug", False)
         self.event_triggers  = {}   # {trigger.id: indigo.trigger}
         self.devices         = {}   # {dev.id: indigo.Device} - tracked appliances
+        self.runtime         = {}   # {dev.id: {"peak": float, "kwh_start": float|None}}
+                                    # transient per-cycle metrics, reset on every _enter_running
 
         if log_startup_banner:
             log_startup_banner(pluginId, pluginDisplayName, pluginVersion, extras=[
@@ -101,6 +103,11 @@ class Plugin(indigo.PluginBase):
 
     def deviceStartComm(self, dev):
         self.logger.info(f"Watching appliance: {dev.name}")
+        # New states in v1.2 (lastCyclePeakWatts, lastCycleEnergyKwh) won't
+        # appear on devices created before v1.2 until first written —
+        # refresh the state list and re-fetch (see global CLAUDE.md gotcha).
+        dev.stateListOrDisplayStateIdChanged()
+        dev = indigo.devices[dev.id]
         # Seed defaults so the device states are populated even before the
         # first tick (otherwise control pages show blanks).
         if dev.states.get("cycleState") not in VALID_STATES:
@@ -108,13 +115,18 @@ class Plugin(indigo.PluginBase):
         for key in ("cycleStartedAt", "cycleFinishedAt", "lowSince", "lastCycleMinutes"):
             if not dev.states.get(key):
                 dev.updateStateOnServer(key, value=0)
+        for key in ("lastCyclePeakWatts", "lastCycleEnergyKwh"):
+            if dev.states.get(key) in (None, ""):
+                dev.updateStateOnServer(key, value=0.0, uiValue="0.0")
         for key in ("doorNotified", "socketNotified"):
             if dev.states.get(key) is None:
                 dev.updateStateOnServer(key, value=False)
         self.devices[dev.id] = dev
+        self.runtime[dev.id] = {"peak": 0.0, "kwh_start": None}
 
     def deviceStopComm(self, dev):
         self.devices.pop(dev.id, None)
+        self.runtime.pop(dev.id, None)
         self.logger.info(f"Stopped watching: {dev.name}")
 
     def validateDeviceConfigUi(self, valuesDict, typeId, devId):
@@ -218,6 +230,8 @@ class Plugin(indigo.PluginBase):
         body = body_template.format(
             name    = dev.name,
             minutes = _i(dev.states.get("lastCycleMinutes"), 0),
+            peakW   = _f(dev.states.get("lastCyclePeakWatts"), 0.0),
+            kwh     = _f(dev.states.get("lastCycleEnergyKwh"), 0.0),
         )
         self._send_pushover(dev, title, body)
 
@@ -246,6 +260,7 @@ class Plugin(indigo.PluginBase):
         props        = dev.pluginProps
         src_id       = _i(props.get("sourceDeviceId"), 0)
         state_key    = props.get("sourceStateKey", "powerWatts") or "powerWatts"
+        energy_key   = (props.get("sourceEnergyStateKey", "energyKwhToday") or "").strip()
         run_w        = _f(props.get("runThresholdWatts"), 5.0)
         idle_w       = _f(props.get("idleThresholdWatts"), 2.0)
         debounce_s   = _i(props.get("debounceMinutes"), 3) * 60
@@ -268,9 +283,10 @@ class Plugin(indigo.PluginBase):
 
         if state == "idle":
             if watts >= run_w:
-                self._enter_running(dev, now)
+                self._enter_running(dev, now, src, energy_key)
 
         elif state == "running":
+            self._track_peak(dev, watts)
             if watts < idle_w:
                 dev.updateStateOnServer("lowSince", value=now)
                 dev.updateStateOnServer("cycleState", value="finishing")
@@ -278,6 +294,7 @@ class Plugin(indigo.PluginBase):
                     self.logger.debug(f"[{dev.name}] entered finishing at {now}")
 
         elif state == "finishing":
+            self._track_peak(dev, watts)
             if watts >= run_w:
                 dev.updateStateOnServer("lowSince", value=0)
                 dev.updateStateOnServer("cycleState", value="running")
@@ -286,12 +303,13 @@ class Plugin(indigo.PluginBase):
             else:
                 low_since = _i(dev.states.get("lowSince"), 0)
                 if low_since and (now - low_since) >= debounce_s:
-                    self._enter_door_wait(dev, finished_at=low_since)
+                    self._enter_door_wait(dev, finished_at=low_since,
+                                          src=src, energy_key=energy_key)
 
         elif state == "doorWait":
             if watts >= run_w:
                 # new cycle - cancel pending notifications, jump to running
-                self._enter_running(dev, now)
+                self._enter_running(dev, now, src, energy_key)
                 return
             finished_at     = _i(dev.states.get("cycleFinishedAt"), 0)
             elapsed         = now - finished_at if finished_at else 0
@@ -314,8 +332,23 @@ class Plugin(indigo.PluginBase):
     # Transitions
     # --------------------------------------------------------
 
-    def _enter_running(self, dev, now):
+    def _track_peak(self, dev, watts):
+        """Update the in-cycle peak-watts tracker."""
+        rt = self.runtime.setdefault(dev.id, {"peak": 0.0, "kwh_start": None})
+        if watts > rt["peak"]:
+            rt["peak"] = watts
+
+    def _enter_running(self, dev, now, src=None, energy_key=""):
         prev = dev.states.get("cycleState", "idle")
+        # Snapshot the source energy counter so we can compute kWh used at
+        # the end of the cycle. None means "no counter available".
+        kwh_start = None
+        if src is not None and energy_key:
+            kwh_start = _f(src.states.get(energy_key), -1.0)
+            if kwh_start < 0:
+                kwh_start = None
+        self.runtime[dev.id] = {"peak": 0.0, "kwh_start": kwh_start}
+
         dev.updateStateOnServer("cycleState",      value="running")
         dev.updateStateOnServer("cycleStartedAt",  value=now)
         dev.updateStateOnServer("lowSince",        value=0)
@@ -325,16 +358,48 @@ class Plugin(indigo.PluginBase):
         if prev != "running":
             self._notify(dev, "cycleStarted")
 
-    def _enter_door_wait(self, dev, finished_at):
+    def _enter_door_wait(self, dev, finished_at, src=None, energy_key=""):
         started_at = _i(dev.states.get("cycleStartedAt"), 0)
         minutes    = (finished_at - started_at) // 60 if started_at else 0
-        dev.updateStateOnServer("cycleState",       value="doorWait")
-        dev.updateStateOnServer("cycleFinishedAt",  value=finished_at)
-        dev.updateStateOnServer("lastCycleMinutes", value=minutes)
-        dev.updateStateOnServer("lowSince",         value=0)
-        dev.updateStateOnServer("doorNotified",     value=False)
-        dev.updateStateOnServer("socketNotified",   value=False)
-        log(f"{dev.name}: cycle ended (duration {minutes} min)")
+
+        # Finalise cycle metrics: peak watts and energy used.
+        rt        = self.runtime.get(dev.id, {"peak": 0.0, "kwh_start": None})
+        peak_w    = float(rt.get("peak", 0.0))
+        kwh_start = rt.get("kwh_start")
+        kwh_used  = 0.0
+        if kwh_start is not None and src is not None and energy_key:
+            kwh_now = _f(src.states.get(energy_key), -1.0)
+            if kwh_now >= 0:
+                kwh_used = kwh_now - kwh_start
+                # Counter rollover (e.g. energyKwhToday at midnight) would
+                # produce a negative delta — clamp to 0 and log if debug.
+                if kwh_used < 0:
+                    if self.debug:
+                        self.logger.debug(
+                            f"[{dev.name}] energy counter rollover detected "
+                            f"({kwh_start:.3f} -> {kwh_now:.3f}); cycle kWh set to 0"
+                        )
+                    kwh_used = 0.0
+
+        dev.updateStateOnServer("cycleState",         value="doorWait")
+        dev.updateStateOnServer("cycleFinishedAt",    value=finished_at)
+        dev.updateStateOnServer("lastCycleMinutes",   value=minutes)
+        dev.updateStateOnServer("lastCyclePeakWatts", value=peak_w,
+                                uiValue=f"{peak_w:.0f} W")
+        dev.updateStateOnServer("lastCycleEnergyKwh", value=round(kwh_used, 3),
+                                uiValue=f"{kwh_used:.3f} kWh")
+        dev.updateStateOnServer("lowSince",           value=0)
+        dev.updateStateOnServer("doorNotified",       value=False)
+        dev.updateStateOnServer("socketNotified",     value=False)
+        # Reset runtime so the next cycle starts clean.
+        self.runtime[dev.id] = {"peak": 0.0, "kwh_start": None}
+
+        if kwh_start is not None:
+            log(f"{dev.name}: cycle ended (duration {minutes} min, "
+                f"peak {peak_w:.0f} W, used {kwh_used:.3f} kWh)")
+        else:
+            log(f"{dev.name}: cycle ended (duration {minutes} min, "
+                f"peak {peak_w:.0f} W)")
 
     def _reset_to_idle(self, dev):
         dev.updateStateOnServer("cycleState",   value="idle")
@@ -356,6 +421,9 @@ class Plugin(indigo.PluginBase):
                 f"startedAt={dev.states.get('cycleStartedAt')} "
                 f"finishedAt={dev.states.get('cycleFinishedAt')} "
                 f"lowSince={dev.states.get('lowSince')} "
+                f"lastCycle={dev.states.get('lastCycleMinutes')}min "
+                f"peak={dev.states.get('lastCyclePeakWatts')}W "
+                f"kwh={dev.states.get('lastCycleEnergyKwh')} "
                 f"doorNotified={dev.states.get('doorNotified')} "
                 f"socketNotified={dev.states.get('socketNotified')}"
             )

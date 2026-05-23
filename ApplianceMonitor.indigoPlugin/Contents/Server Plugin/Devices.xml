@@ -30,6 +30,11 @@
                 <Description>State key on the source device that reports watts. Shelly plugin uses "powerWatts".</Description>
             </Field>
 
+            <Field id="sourceEnergyStateKey" type="textfield" defaultValue="energyKwhToday">
+                <Label>Energy state name (optional):</Label>
+                <Description>State key on the source device that reports a running kWh counter. ShellyDirect uses "energyKwhToday". Leave blank if the meter has no energy counter — the plugin will simply skip the per-cycle kWh measurement.</Description>
+            </Field>
+
             <Field id="separator1" type="separator"/>
 
             <Field id="runThresholdWatts" type="textfield" defaultValue="5.0">
@@ -131,6 +136,16 @@
                 <ValueType>Integer</ValueType>
                 <TriggerLabel>Last cycle minutes changes</TriggerLabel>
                 <ControlPageLabel>Last Cycle (min)</ControlPageLabel>
+            </State>
+            <State id="lastCyclePeakWatts">
+                <ValueType>Number</ValueType>
+                <TriggerLabel>Last cycle peak watts changes</TriggerLabel>
+                <ControlPageLabel>Last Cycle Peak (W)</ControlPageLabel>
+            </State>
+            <State id="lastCycleEnergyKwh">
+                <ValueType>Number</ValueType>
+                <TriggerLabel>Last cycle energy changes</TriggerLabel>
+                <ControlPageLabel>Last Cycle Energy (kWh)</ControlPageLabel>
             </State>
             <State id="doorNotified">
                 <ValueType>Boolean</ValueType>
