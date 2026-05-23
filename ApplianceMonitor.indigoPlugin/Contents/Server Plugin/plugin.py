@@ -51,7 +51,7 @@ VALID_STATES    = ("idle", "running", "finishing", "doorWait")
 # ============================================================
 
 def log(message, level="INFO"):
-    indigo.server.log(f"[{datetime.now().strftime('%H:%M:%S')}] {message}", level=level)
+    indigo.server.log(f"[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] {message}", level=level)
 
 
 def _f(value, default):
