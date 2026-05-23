@@ -7,7 +7,11 @@
 #              events: cycleStarted, doorReady, socketReminder.
 # Author:      CliveS & Claude Opus 4.7
 # Date:        23-05-2026
-# Version:     1.2.0
+# Version:     1.2.1
+#
+# v1.2.1 (23-05-2026): Millisecond timestamp [HH:MM:SS.mmm] prefix on every
+# log line via plugin_utils.install_timestamp_filter() — matches Device
+# Activity Monitor convention. New "Toggle Timestamps in Log" menu item.
 
 try:
     import indigo
@@ -24,6 +28,10 @@ try:
     from plugin_utils import log_startup_banner
 except ImportError:
     log_startup_banner = None
+try:
+    from plugin_utils import install_timestamp_filter
+except ImportError:
+    install_timestamp_filter = None
 
 
 # ============================================================
@@ -31,7 +39,7 @@ except ImportError:
 # ============================================================
 
 PLUGIN_ID       = "com.clives.indigoplugin.appliancemonitor"
-PLUGIN_VERSION  = "1.2.0"
+PLUGIN_VERSION  = "1.2.1"
 PUSHOVER_PLUGIN = "io.thechad.indigoplugin.pushover"
 TICK_SECONDS    = 20
 
@@ -74,6 +82,12 @@ class Plugin(indigo.PluginBase):
         self.devices         = {}   # {dev.id: indigo.Device} - tracked appliances
         self.runtime         = {}   # {dev.id: {"peak": float, "kwh_start": float|None}}
                                     # transient per-cycle metrics, reset on every _enter_running
+        self.timestamp_enabled = bool(pluginPrefs.get("timestampEnabled", True))
+
+        if install_timestamp_filter:
+            self._ts_filter = install_timestamp_filter(self, enabled=self.timestamp_enabled)
+        else:
+            self._ts_filter = None
 
         if log_startup_banner:
             log_startup_banner(pluginId, pluginDisplayName, pluginVersion, extras=[
@@ -429,10 +443,22 @@ class Plugin(indigo.PluginBase):
             )
 
     def showPluginInfo(self, valuesDict=None, typeId=None):
+        extras = [
+            ("Tick interval:", f"{TICK_SECONDS} s"),
+            ("Tracked devices:", str(len(self.devices))),
+            ("Timestamps in Log:", "ON" if self.timestamp_enabled else "OFF"),
+        ]
         if log_startup_banner:
-            log_startup_banner(self.pluginId, self.pluginDisplayName, self.pluginVersion, extras=[
-                ("Tick interval:", f"{TICK_SECONDS} s"),
-                ("Tracked devices:", str(len(self.devices))),
-            ])
+            log_startup_banner(self.pluginId, self.pluginDisplayName, self.pluginVersion, extras=extras)
         else:
             indigo.server.log(f"{self.pluginDisplayName} v{self.pluginVersion}")
+            for label, value in extras:
+                indigo.server.log(f"  {label} {value}")
+
+    def menuToggleTimestamps(self):
+        self.timestamp_enabled = not self.timestamp_enabled
+        self.pluginPrefs["timestampEnabled"] = self.timestamp_enabled
+        if self._ts_filter:
+            self._ts_filter.enabled = self.timestamp_enabled
+        state = "ON" if self.timestamp_enabled else "OFF"
+        indigo.server.log(f"[{self.pluginDisplayName}] Timestamps in Log -> {state}")
