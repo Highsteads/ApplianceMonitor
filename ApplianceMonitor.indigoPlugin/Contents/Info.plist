@@ -2,26 +2,26 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleIdentifier</key>
-    <string>com.clives.indigoplugin.appliancemonitor</string>
-    <key>CFBundleDisplayName</key>
-    <string>Appliance Monitor</string>
-    <key>CFBundleName</key>
-    <string>ApplianceMonitor</string>
-    <key>CFBundleVersion</key>
-    <string>1.2.2</string>
-    <key>CFBundleShortVersionString</key>
-    <string>1.2.2</string>
-    <key>PluginVersion</key>
-    <string>1.2.2</string>
-    <key>ServerApiVersion</key>
-    <string>3.0</string>
-    <key>GithubInfo</key>
-    <dict>
-        <key>GithubRepo</key>
-        <string>ApplianceMonitor</string>
-        <key>GithubUser</key>
-        <string>Highsteads</string>
-    </dict>
+	<key>CFBundleDisplayName</key>
+	<string>Appliance Monitor</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.clives.indigoplugin.appliancemonitor</string>
+	<key>CFBundleName</key>
+	<string>ApplianceMonitor</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.2.2</string>
+	<key>CFBundleVersion</key>
+	<string>1.0.0</string>
+	<key>GithubInfo</key>
+	<dict>
+		<key>GithubRepo</key>
+		<string>ApplianceMonitor</string>
+		<key>GithubUser</key>
+		<string>Highsteads</string>
+	</dict>
+	<key>PluginVersion</key>
+	<string>1.2.2</string>
+	<key>ServerApiVersion</key>
+	<string>3.0</string>
 </dict>
 </plist>
