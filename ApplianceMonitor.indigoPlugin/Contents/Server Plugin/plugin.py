@@ -7,7 +7,7 @@
 #              events: cycleStarted, doorReady, socketReminder.
 # Author:      CliveS & Claude Opus 4.7
 # Date:        23-05-2026
-# Version:     1.2.1
+# Version:     1.2.2
 #
 # v1.2.1 (23-05-2026): Millisecond timestamp [HH:MM:SS.mmm] prefix on every
 # log line via plugin_utils.install_timestamp_filter() — matches Device
@@ -39,7 +39,7 @@ except ImportError:
 # ============================================================
 
 PLUGIN_ID       = "com.clives.indigoplugin.appliancemonitor"
-PLUGIN_VERSION  = "1.2.1"
+PLUGIN_VERSION  = "1.2.2"
 PUSHOVER_PLUGIN = "io.thechad.indigoplugin.pushover"
 TICK_SECONDS    = 20
 
@@ -142,6 +142,18 @@ class Plugin(indigo.PluginBase):
         self.devices.pop(dev.id, None)
         self.runtime.pop(dev.id, None)
         self.logger.info(f"Stopped watching: {dev.name}")
+
+    @staticmethod
+    def didDeviceCommPropertyChange(oldDevice, newDevice):
+        """Restart comm only when the monitored source binding changes.
+
+        sourceDeviceId selects which power-meter device to watch;
+        sourceStateKey / sourceEnergyStateKey pick the value keys on it.
+        Thresholds, debounce minutes and notification settings are re-read
+        live by the running monitor — no restart needed.
+        """
+        keys = ("sourceDeviceId", "sourceStateKey", "sourceEnergyStateKey")
+        return any(oldDevice.pluginProps.get(k) != newDevice.pluginProps.get(k) for k in keys)
 
     def validateDeviceConfigUi(self, valuesDict, typeId, devId):
         errors = indigo.Dict()
