@@ -49,7 +49,7 @@
 
             <Field id="debounceMinutes" type="textfield" defaultValue="3">
                 <Label>End-of-cycle debounce (min):</Label>
-                <Description>How long power must stay below the idle threshold before the cycle is declared ended. Avoids false ends during mid-cycle quiet phases.</Description>
+                <Description>How long power must stay below the idle threshold before the cycle is declared ended. Avoids false ends during mid-cycle quiet phases. Set to 0 to disable debounce (cycle ends on first sub-idle reading — only safe for appliances whose final phase never dips below idleThresholdWatts before fully stopping).</Description>
             </Field>
 
             <Field id="separator2" type="separator"/>

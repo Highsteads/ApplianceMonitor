@@ -7,7 +7,13 @@
 #              events: cycleStarted, doorReady, socketReminder.
 # Author:      CliveS & Claude Opus 4.7
 # Date:        23-05-2026
-# Version:     1.2.2
+# Version:     1.2.3
+#
+# v1.2.3 (30-05-2026): debounceMinutes now accepts 0 (disables debounce —
+# cycle declared ended on first sub-idle reading). Useful for appliances
+# whose final phase never dips below idleThresholdWatts before fully
+# stopping (e.g. washing machines whose drain pump finishes >2 W and then
+# drops cleanly to 0 W).
 #
 # v1.2.1 (23-05-2026): Millisecond timestamp [HH:MM:SS.mmm] prefix on every
 # log line via plugin_utils.install_timestamp_filter() — matches Device
@@ -39,7 +45,7 @@ except ImportError:
 # ============================================================
 
 PLUGIN_ID       = "com.clives.indigoplugin.appliancemonitor"
-PLUGIN_VERSION  = "1.2.2"
+PLUGIN_VERSION  = "1.2.3"
 PUSHOVER_PLUGIN = "io.thechad.indigoplugin.pushover"
 TICK_SECONDS    = 20
 
@@ -163,8 +169,8 @@ class Plugin(indigo.PluginBase):
             errors["idleThresholdWatts"] = "Must be zero or a positive number of watts."
         if run_w > 0 and idle_w >= run_w:
             errors["idleThresholdWatts"] = "Idle threshold must be less than run threshold."
-        if _i(valuesDict.get("debounceMinutes"), -1) < 1:
-            errors["debounceMinutes"] = "Must be a positive integer (minutes)."
+        if _i(valuesDict.get("debounceMinutes"), -1) < 0:
+            errors["debounceMinutes"] = "Must be zero or a positive integer (minutes); 0 disables debounce."
         if _i(valuesDict.get("doorDelayMinutes"), -1) < 0:
             errors["doorDelayMinutes"] = "Must be zero or a positive integer (minutes)."
         if _i(valuesDict.get("socketReminderMinutes"), -1) < 1:
