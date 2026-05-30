@@ -7,7 +7,19 @@
 #              events: cycleStarted, doorReady, socketReminder.
 # Author:      CliveS & Claude Opus 4.7
 # Date:        23-05-2026
-# Version:     1.2.4
+# Version:     1.2.5
+#
+# v1.2.5 (30-05-2026): Source-offline detection — when the source
+# power-meter (e.g. Shelly) reports deviceOnline=False, the appliance
+# has been physically powered off (wall switch / unplugged). AM now
+# transitions to a new cycleState "off" (added to VALID_STATES) in
+# the non-running states (idle / finishing / doorWait), cancels any
+# pending socket-reminder Pushover, and stays there until the source
+# comes back online (then reverts to idle, ready to detect the next
+# cycle). Mid-cycle (running state) ignores transient offline events
+# to avoid false drops on a network blip. No new ConfigUI — the
+# behaviour only triggers when the source actually emits
+# deviceOnline=False, so devices with no such state are unaffected.
 #
 # v1.2.4 (30-05-2026): Per-device Pushover title overrides — three new
 # ConfigUI fields (titleCycleStarted / titleDoorReady / titleSocketReminder)
@@ -54,11 +66,15 @@ except ImportError:
 # ============================================================
 
 PLUGIN_ID       = "com.clives.indigoplugin.appliancemonitor"
-PLUGIN_VERSION  = "1.2.4"
+PLUGIN_VERSION  = "1.2.5"
 PUSHOVER_PLUGIN = "io.thechad.indigoplugin.pushover"
 TICK_SECONDS    = 20
 
-VALID_STATES    = ("idle", "running", "finishing", "doorWait")
+VALID_STATES    = ("idle", "running", "finishing", "doorWait", "off")
+# Non-running states where source-offline → "off" is meaningful.
+# "running" is excluded so a transient mid-cycle network blip never
+# falsely drops cycle tracking.
+_OFFLINE_OK_STATES = ("idle", "finishing", "doorWait")
 
 
 # ============================================================
@@ -323,6 +339,38 @@ class Plugin(indigo.PluginBase):
         if self.debug:
             self.logger.debug(f"[{dev.name}] state={state} watts={watts:.1f}")
 
+        # --------------------------------------------------------
+        # Source online / offline handling (v1.2.5)
+        #
+        # If the source device exposes a deviceOnline state and reports
+        # False, the appliance has been physically powered off (wall
+        # switch / unplugged → Shelly lost mains). In non-running
+        # states we drop straight to "off" — this cancels the pending
+        # socket-reminder Pushover. We ignore offline in "running" to
+        # avoid mid-cycle network blips falsely dropping cycle tracking.
+        #
+        # Default-True so devices that don't track online status (or
+        # never go offline) are unaffected.
+        # --------------------------------------------------------
+        src_online = src.states.get("deviceOnline", True)
+        if src_online is None:
+            src_online = True
+
+        if not src_online:
+            if state in _OFFLINE_OK_STATES:
+                if state != "off":
+                    self._enter_off(dev)
+                return
+            # state == "running": ignore offline, keep ticking
+        else:
+            # Source is online — if we were sitting in "off", revert to
+            # idle and continue into the FSM so an already-drawing
+            # appliance is promoted to running on the same tick.
+            if state == "off":
+                log(f"{dev.name}: source back online — resetting to idle")
+                self._reset_to_idle(dev)
+                state = "idle"
+
         if state == "idle":
             if watts >= run_w:
                 self._enter_running(dev, now, src, energy_key)
@@ -446,6 +494,17 @@ class Plugin(indigo.PluginBase):
     def _reset_to_idle(self, dev):
         dev.updateStateOnServer("cycleState",   value="idle")
         dev.updateStateOnServer("lowSince",     value=0)
+
+    def _enter_off(self, dev):
+        """Source device offline → appliance physically powered off
+        (wall switch / unplugged). Clears any pending socket-reminder
+        timing — when source comes back online we revert to idle.
+        """
+        dev.updateStateOnServer("cycleState",     value="off")
+        dev.updateStateOnServer("lowSince",       value=0)
+        dev.updateStateOnServer("doorNotified",   value=False)
+        dev.updateStateOnServer("socketNotified", value=False)
+        log(f"{dev.name}: source device offline — appliance powered off (no socket reminder)")
 
     # --------------------------------------------------------
     # Menu handlers

@@ -9,7 +9,7 @@
 	<key>CFBundleName</key>
 	<string>ApplianceMonitor</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.2.4</string>
+	<string>1.2.5</string>
 	<key>CFBundleVersion</key>
 	<string>1.0.0</string>
 	<key>GithubInfo</key>
@@ -20,7 +20,7 @@
 		<string>Highsteads</string>
 	</dict>
 	<key>PluginVersion</key>
-	<string>1.2.4</string>
+	<string>1.2.5</string>
 	<key>ServerApiVersion</key>
 	<string>3.0</string>
 </dict>
