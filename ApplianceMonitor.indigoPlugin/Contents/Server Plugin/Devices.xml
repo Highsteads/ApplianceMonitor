@@ -83,6 +83,25 @@
                 <Label>Notify on socket reminder:</Label>
             </Field>
 
+            <Field id="titlesHeader" type="label" fontColor="darkgray">
+                <Label>Per-device Pushover titles (leave blank for the appliance-agnostic default shown):</Label>
+            </Field>
+
+            <Field id="titleCycleStarted" type="textfield" defaultValue="">
+                <Label>Cycle-started title:</Label>
+                <Description>Default if blank: "Cycle started". Examples: "Wash started", "Dryer started", "Dishwasher started".</Description>
+            </Field>
+
+            <Field id="titleDoorReady" type="textfield" defaultValue="">
+                <Label>Door-ready title:</Label>
+                <Description>Default if blank: "Cycle done". Examples: "Wash done", "Dryer done", "Dishwasher done".</Description>
+            </Field>
+
+            <Field id="titleSocketReminder" type="textfield" defaultValue="">
+                <Label>Socket-reminder title:</Label>
+                <Description>Default if blank: "Switch off socket".</Description>
+            </Field>
+
             <Field id="pushoverPriority" type="menu" defaultValue="0">
                 <Label>Pushover priority:</Label>
                 <List>

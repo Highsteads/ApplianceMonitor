@@ -7,7 +7,16 @@
 #              events: cycleStarted, doorReady, socketReminder.
 # Author:      CliveS & Claude Opus 4.7
 # Date:        23-05-2026
-# Version:     1.2.3
+# Version:     1.2.4
+#
+# v1.2.4 (30-05-2026): Per-device Pushover title overrides — three new
+# ConfigUI fields (titleCycleStarted / titleDoorReady / titleSocketReminder)
+# let each appliance customise its own notification titles. Defaults are
+# appliance-agnostic ("Cycle started" / "Cycle done" / "Switch off socket"),
+# replacing the wash-specific wording that previously came through on
+# every appliance (e.g. "Wash done" appearing on Tumble Dryer alerts).
+# Empty field falls back to the appliance-agnostic default — existing
+# devices upgrade silently with no config touch needed.
 #
 # v1.2.3 (30-05-2026): debounceMinutes now accepts 0 (disables debounce —
 # cycle declared ended on first sub-idle reading). Useful for appliances
@@ -45,7 +54,7 @@ except ImportError:
 # ============================================================
 
 PLUGIN_ID       = "com.clives.indigoplugin.appliancemonitor"
-PLUGIN_VERSION  = "1.2.3"
+PLUGIN_VERSION  = "1.2.4"
 PUSHOVER_PLUGIN = "io.thechad.indigoplugin.pushover"
 TICK_SECONDS    = 20
 
@@ -229,19 +238,23 @@ class Plugin(indigo.PluginBase):
         except Exception:
             self.logger.exception(f"[{dev.name}] Pushover send failed")
 
-    # Per-event notification config: which checkbox gates sending, and what
-    # the default title/body look like. Body templates can reference
-    # {name} and {minutes}.
+    # Per-event notification config:
+    #   checkbox_key   — pluginProps key that gates sending
+    #   title_key      — pluginProps key holding a per-device title override
+    #                    (empty/missing → use default_title below)
+    #   default_title  — appliance-agnostic default (so a Tumble Dryer doesn't
+    #                    Pushover "Wash done")
+    #   body_template  — supports {name}, {minutes}, {peakW}, {kwh}
     _NOTIFY_CONFIG = {
-        "cycleStarted":   ("notifyCycleStarted",
-                           "Wash started",
+        "cycleStarted":   ("notifyCycleStarted",   "titleCycleStarted",
+                           "Cycle started",
                            "{name}: cycle started."),
-        "doorReady":      ("notifyDoorReady",
-                           "Wash done",
+        "doorReady":      ("notifyDoorReady",      "titleDoorReady",
+                           "Cycle done",
                            "{name}: cycle complete after {minutes} min — door unlocking now."),
-        "socketReminder": ("notifySocketReminder",
+        "socketReminder": ("notifySocketReminder", "titleSocketReminder",
                            "Switch off socket",
-                           "{name}: no new wash started — please switch the wall socket off."),
+                           "{name}: no new cycle started — please switch the wall socket off."),
     }
 
     def _notify(self, dev, event_id):
@@ -251,9 +264,11 @@ class Plugin(indigo.PluginBase):
         cfg = self._NOTIFY_CONFIG.get(event_id)
         if not cfg:
             return
-        prop_key, title, body_template = cfg
-        if not bool(dev.pluginProps.get(prop_key, False)):
+        checkbox_key, title_key, default_title, body_template = cfg
+        if not bool(dev.pluginProps.get(checkbox_key, False)):
             return
+        # Per-device override wins; empty/missing/whitespace falls back.
+        title = (dev.pluginProps.get(title_key) or "").strip() or default_title
         body = body_template.format(
             name    = dev.name,
             minutes = _i(dev.states.get("lastCycleMinutes"), 0),
