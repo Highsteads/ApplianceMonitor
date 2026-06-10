@@ -10,3 +10,6 @@ CLAUDE.md
 **/CLAUDE.md
 **/Contents/Packages/
 *.indigoPlugin.zip
+
+# Test runner artefacts
+.pytest_cache/
