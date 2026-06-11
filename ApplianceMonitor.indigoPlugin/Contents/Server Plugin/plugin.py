@@ -5,9 +5,19 @@
 #              by a power-monitoring device (e.g. Shelly). Sends Pushover
 #              notifications directly and also fires three Indigo custom
 #              events: cycleStarted, doorReady, socketReminder.
-# Author:      CliveS & Claude Opus 4.7
-# Date:        23-05-2026
-# Version:     1.2.5
+# Author:      CliveS & Claude Fable 5
+# Date:        11-06-2026
+# Version:     1.3.0
+#
+# v1.3.0 (11-06-2026): COST-PER-CYCLE. New optional ConfigUI field
+# rateVariableName — the name of an Indigo variable holding the electricity
+# import rate in pence/kWh (e.g. "tracker_rate_today"). When set, every
+# finished cycle computes cost = cycle kWh × rate at cycle end, written to
+# new states lastCycleCostGbp + lastCycleRateP, appended to the cycle-ended
+# log line, and added to the doorReady Pushover ("Used 0.84 kWh (~£0.20)").
+# Honest caveat: this is "at today's import rate" — solar/battery homes may
+# have drawn some of it free. Unreadable/missing variable logs a WARNING and
+# skips costing; blank field = feature off (no behaviour change).
 #
 # v1.2.5 (30-05-2026): Source-offline detection — when the source
 # power-meter (e.g. Shelly) reports deviceOnline=False, the appliance
@@ -66,7 +76,7 @@ except ImportError:
 # ============================================================
 
 PLUGIN_ID       = "com.clives.indigoplugin.appliancemonitor"
-PLUGIN_VERSION  = "1.2.5"
+PLUGIN_VERSION  = "1.3.0"
 PUSHOVER_PLUGIN = "io.thechad.indigoplugin.pushover"
 TICK_SECONDS    = 20
 
@@ -155,7 +165,8 @@ class Plugin(indigo.PluginBase):
         for key in ("cycleStartedAt", "cycleFinishedAt", "lowSince", "lastCycleMinutes"):
             if not dev.states.get(key):
                 dev.updateStateOnServer(key, value=0)
-        for key in ("lastCyclePeakWatts", "lastCycleEnergyKwh"):
+        for key in ("lastCyclePeakWatts", "lastCycleEnergyKwh",
+                    "lastCycleCostGbp", "lastCycleRateP"):
             if dev.states.get(key) in (None, ""):
                 dev.updateStateOnServer(key, value=0.0, uiValue="0.0")
         for key in ("doorNotified", "socketNotified"):
@@ -291,6 +302,14 @@ class Plugin(indigo.PluginBase):
             peakW   = _f(dev.states.get("lastCyclePeakWatts"), 0.0),
             kwh     = _f(dev.states.get("lastCycleEnergyKwh"), 0.0),
         )
+        # Cycle-done notifications carry the cost when one was measured.
+        if event_id == "doorReady":
+            kwh  = _f(dev.states.get("lastCycleEnergyKwh"), 0.0)
+            cost = _f(dev.states.get("lastCycleCostGbp"), 0.0)
+            if cost > 0:
+                body += f" Used {kwh:.2f} kWh (~£{cost:.2f})."
+            elif kwh > 0:
+                body += f" Used {kwh:.2f} kWh."
         self._send_pushover(dev, title, body)
 
     # --------------------------------------------------------
@@ -478,6 +497,26 @@ class Plugin(indigo.PluginBase):
                                 uiValue=f"{peak_w:.0f} W")
         dev.updateStateOnServer("lastCycleEnergyKwh", value=round(kwh_used, 3),
                                 uiValue=f"{kwh_used:.3f} kWh")
+
+        # Cost-per-cycle (v1.3.0): kWh used × the import rate (pence/kWh) read
+        # from a user-named Indigo variable at cycle end. This is "what the
+        # cycle would cost at today's import rate" — homes with solar/battery
+        # may have actually drawn some of it free, which is the honest caveat.
+        rate_p = 0.0
+        rate_var = (dev.pluginProps.get("rateVariableName") or "").strip()
+        if rate_var and kwh_used > 0:
+            try:
+                rate_p = float(indigo.variables[rate_var].value)
+            except Exception as exc:
+                log(f"{dev.name}: rate variable {rate_var!r} unreadable "
+                    f"({exc}) — cycle cost skipped", level="WARNING")
+                rate_p = 0.0
+        cost_gbp = kwh_used * rate_p / 100.0 if rate_p > 0 else 0.0
+        dev.updateStateOnServer("lastCycleCostGbp", value=round(cost_gbp, 3),
+                                uiValue=(f"£{cost_gbp:.2f}" if cost_gbp > 0 else "—"))
+        dev.updateStateOnServer("lastCycleRateP", value=round(rate_p, 2),
+                                uiValue=(f"{rate_p:.2f} p/kWh" if rate_p > 0 else "—"))
+
         dev.updateStateOnServer("lowSince",           value=0)
         dev.updateStateOnServer("doorNotified",       value=False)
         dev.updateStateOnServer("socketNotified",     value=False)
@@ -485,8 +524,9 @@ class Plugin(indigo.PluginBase):
         self.runtime[dev.id] = {"peak": 0.0, "kwh_start": None}
 
         if kwh_start is not None:
+            cost_txt = f", ~£{cost_gbp:.2f} @ {rate_p:.1f}p" if cost_gbp > 0 else ""
             log(f"{dev.name}: cycle ended (duration {minutes} min, "
-                f"peak {peak_w:.0f} W, used {kwh_used:.3f} kWh)")
+                f"peak {peak_w:.0f} W, used {kwh_used:.3f} kWh{cost_txt})")
         else:
             log(f"{dev.name}: cycle ended (duration {minutes} min, "
                 f"peak {peak_w:.0f} W)")

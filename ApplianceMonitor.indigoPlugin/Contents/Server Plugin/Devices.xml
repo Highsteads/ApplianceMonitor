@@ -35,6 +35,11 @@
                 <Description>State key on the source device that reports a running kWh counter. ShellyDirect uses "energyKwhToday". Leave blank if the meter has no energy counter — the plugin will simply skip the per-cycle kWh measurement.</Description>
             </Field>
 
+            <Field id="rateVariableName" type="textfield" defaultValue="">
+                <Label>Rate variable (optional):</Label>
+                <Description>Name of an Indigo variable holding your electricity import rate in pence per kWh (e.g. "tracker_rate_today"). When set, every finished cycle gets a cost: cycle kWh times the rate at cycle end. Leave blank to skip costing.</Description>
+            </Field>
+
             <Field id="separator1" type="separator"/>
 
             <Field id="runThresholdWatts" type="textfield" defaultValue="5.0">
@@ -165,6 +170,16 @@
                 <ValueType>Number</ValueType>
                 <TriggerLabel>Last cycle energy changes</TriggerLabel>
                 <ControlPageLabel>Last Cycle Energy (kWh)</ControlPageLabel>
+            </State>
+            <State id="lastCycleCostGbp">
+                <ValueType>Number</ValueType>
+                <TriggerLabel>Last cycle cost changes</TriggerLabel>
+                <ControlPageLabel>Last Cycle Cost (GBP)</ControlPageLabel>
+            </State>
+            <State id="lastCycleRateP">
+                <ValueType>Number</ValueType>
+                <TriggerLabel>Last cycle rate changes</TriggerLabel>
+                <ControlPageLabel>Last Cycle Rate (p/kWh)</ControlPageLabel>
             </State>
             <State id="doorNotified">
                 <ValueType>Boolean</ValueType>

@@ -99,10 +99,24 @@ can use them on control pages, in triggers, or for solar/energy automations:
 |---|---|
 | `lastCyclePeakWatts` | Maximum watts seen during the cycle (e.g. heater peak) |
 | `lastCycleEnergyKwh` | kWh consumed during the cycle, taken as the delta on the source meter's energy counter (default `energyKwhToday`). Set to 0 on midnight rollover or if the meter has no counter. |
+| `lastCycleCostGbp` | **v1.3.0** — what the cycle cost: cycle kWh times your import rate at cycle end. Needs the optional rate variable below, otherwise stays at 0. |
+| `lastCycleRateP` | **v1.3.0** — the pence-per-kWh rate that was applied to the last cycle. |
 
 These are also available inside the Pushover body template via the
 `{peakW}` and `{kwh}` placeholders if you want to customise the message
 (the default templates ignore them for backward compatibility).
+
+### Cost per cycle (v1.3.0)
+
+Point the new **Rate variable** field in the device config at an Indigo
+variable holding your electricity import rate in pence per kWh (for example
+a variable your tariff plugin keeps current, like `tracker_rate_today`).
+From then on every finished cycle gets a price: the cycle-ended log line
+shows it, the cycle-done Pushover gains a "Used 0.84 kWh (~£0.20)" line, and
+the two states above feed control pages and dashboards. One honest caveat:
+the figure is "at today's import rate" — if you have solar or a battery,
+some of that energy may have actually been free. Leave the field blank and
+nothing changes.
 
 ## Requirements
 
