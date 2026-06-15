@@ -128,6 +128,17 @@
                 <Description>Leave blank to use the default user configured in the Pushover plugin.</Description>
             </Field>
 
+            <Field id="separator4" type="separator"/>
+
+            <Field id="emailHeader" type="label" fontColor="darkgray">
+                <Label>Email notifications (sent in addition to Pushover, for the same events ticked above):</Label>
+            </Field>
+
+            <Field id="emailRecipients" type="textfield" defaultValue="">
+                <Label>Email recipients (optional):</Label>
+                <Description>Comma-separated email addresses to notify in addition to Pushover (e.g. "jane@example.com, sam@example.com"). Sent via the Email+ plugin's first SMTP server. Leave blank to send Pushover only.</Description>
+            </Field>
+
         </ConfigUI>
 
         <States>

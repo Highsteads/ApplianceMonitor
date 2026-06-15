@@ -5,9 +5,20 @@
 #              by a power-monitoring device (e.g. Shelly). Sends Pushover
 #              notifications directly and also fires three Indigo custom
 #              events: cycleStarted, doorReady, socketReminder.
-# Author:      CliveS & Claude Fable 5
-# Date:        11-06-2026
-# Version:     1.3.0
+# Author:      CliveS & Claude Opus 4.8
+# Date:        15-06-2026
+# Version:     1.4.0
+#
+# v1.4.0 (15-06-2026): EMAIL NOTIFICATIONS. New optional per-appliance
+# ConfigUI field emailRecipients — a comma-separated list of email
+# addresses. When set, every notification that already goes out by
+# Pushover (gated by the same notifyCycleStarted / notifyDoorReady /
+# notifySocketReminder checkboxes) is ALSO emailed to those recipients
+# via indigo.server.sendEmailTo() — the Email+ plugin's first SMTP
+# server. The Pushover title becomes the subject and the Pushover body
+# the message. Lets people without the Pushover app (e.g. a partner)
+# still get the alerts. Blank field = feature off (Pushover only, no
+# behaviour change). Read live from pluginProps, so no restart needed.
 #
 # v1.3.0 (11-06-2026): COST-PER-CYCLE. New optional ConfigUI field
 # rateVariableName — the name of an Indigo variable holding the electricity
@@ -76,7 +87,7 @@ except ImportError:
 # ============================================================
 
 PLUGIN_ID       = "com.clives.indigoplugin.appliancemonitor"
-PLUGIN_VERSION  = "1.3.0"
+PLUGIN_VERSION  = "1.4.0"
 PUSHOVER_PLUGIN = "io.thechad.indigoplugin.pushover"
 TICK_SECONDS    = 20
 
@@ -265,6 +276,29 @@ class Plugin(indigo.PluginBase):
         except Exception:
             self.logger.exception(f"[{dev.name}] Pushover send failed")
 
+    def _send_email(self, dev, subject, body):
+        """Email the same notification to any per-device recipients.
+
+        Uses indigo.server.sendEmailTo() (NOT executeAction) — it bypasses
+        the cross-plugin prop-serialisation bug and picks the first Email+
+        SMTP device automatically. Each address is sent individually so one
+        bad address doesn't block the rest. Blank field = no email.
+        """
+        recipients = [
+            addr.strip()
+            for addr in (dev.pluginProps.get("emailRecipients") or "").split(",")
+            if addr.strip()
+        ]
+        if not recipients:
+            return
+        for addr in recipients:
+            try:
+                indigo.server.sendEmailTo(addr, subject=subject, body=body)
+                if self.debug:
+                    self.logger.debug(f"[{dev.name}] email sent to {addr}: {subject}")
+            except Exception:
+                self.logger.exception(f"[{dev.name}] email send to {addr} failed")
+
     # Per-event notification config:
     #   checkbox_key   — pluginProps key that gates sending
     #   title_key      — pluginProps key holding a per-device title override
@@ -311,6 +345,7 @@ class Plugin(indigo.PluginBase):
             elif kwh > 0:
                 body += f" Used {kwh:.2f} kWh."
         self._send_pushover(dev, title, body)
+        self._send_email(dev, title, body)
 
     # --------------------------------------------------------
     # Main loop

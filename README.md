@@ -72,6 +72,7 @@ Create one Appliance Monitor device per appliance:
 | Pushover priority | -2/-1/0/1/2 (Pushover API values) | `0` |
 | Pushover sound | Pushover sound name (`vibrate` for silent buzz) | `vibrate` |
 | Pushover user token | Override Pushover plugin default user (optional) | — |
+| Email recipients | Comma-separated email addresses notified alongside Pushover, for the same events ticked above (v1.4.0) | — |
 | Energy state name | State on the meter that reports a running kWh counter (e.g. `energyKwhToday`). Leave blank to skip per-cycle kWh capture | `energyKwhToday` |
 
 The plugin sends Pushover itself via the Pushover plugin
@@ -118,9 +119,26 @@ the figure is "at today's import rate" — if you have solar or a battery,
 some of that energy may have actually been free. Leave the field blank and
 nothing changes.
 
+## Email notifications (v1.4.0)
+
+Pushover is great if everyone in the house has the app, but a partner who
+doesn't isn't going to see "wash done". The **Email recipients** field on
+each appliance fixes that — put one or more comma-separated addresses in it
+and every alert that already goes out by Pushover gets emailed to those
+people as well. The Pushover title becomes the subject and the Pushover
+text becomes the body, so the two channels say exactly the same thing.
+
+It's gated by the same **Notify on …** checkboxes as Pushover, so you don't
+get a flood of extra mail — only the events you've already opted into. Mail
+goes out through the Email+ plugin's first SMTP server, so that needs to be
+set up. Leave the field blank and nothing changes — Pushover only, exactly
+as before.
+
 ## Requirements
 
 - Indigo 2025.2 or later (Python 3.13)
+- The Email+ plugin configured with an SMTP server (only if you use the
+  Email recipients field)
 - A device that exposes a watts state — ShellyDirect, Shelly Gen1,
   Z-Wave power meters, etc.
 
