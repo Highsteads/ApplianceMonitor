@@ -139,6 +139,11 @@
                 <Label>Email notifications (sent in addition to Pushover, for the same events ticked above):</Label>
             </Field>
 
+            <Field id="emailEnabled" type="checkbox" defaultValue="true">
+                <Label>Send email alerts:</Label>
+                <Description>Untick to silence email without clearing the recipients below — handy for keeping addresses on file as a dormant fallback while Pushover does the live notifying (so people aren't pinged twice for one event).</Description>
+            </Field>
+
             <Field id="emailRecipients" type="textfield" defaultValue="">
                 <Label>Email recipients (optional):</Label>
                 <Description>Comma-separated email addresses to notify in addition to Pushover (e.g. "jane@example.com, sam@example.com"). Sent via the Email+ plugin's first SMTP server. Leave blank to send Pushover only.</Description>

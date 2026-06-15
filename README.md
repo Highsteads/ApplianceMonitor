@@ -73,6 +73,7 @@ Create one Appliance Monitor device per appliance:
 | Pushover sound | Pushover sound name (`vibrate` for silent buzz) | `vibrate` |
 | Pushover user token | Override Pushover plugin default user (optional) | — |
 | Also notify (extra Pushover users) | Comma-separated extra Pushover user keys (or a delivery-group key) that get a copy on top of the primary recipient — e.g. a partner with their own Pushover account (v1.5.0) | — |
+| Send email alerts | Untick to silence email without clearing the recipients — keeps them on file as a dormant fallback (v1.6.0) | on |
 | Email recipients | Comma-separated email addresses notified alongside Pushover, for the same events ticked above (v1.4.0) | — |
 | Energy state name | State on the meter that reports a running kWh counter (e.g. `energyKwhToday`). Leave blank to skip per-cycle kWh capture | `energyKwhToday` |
 
@@ -144,6 +145,11 @@ get a flood of extra mail — only the events you've already opted into. Mail
 goes out through the Email+ plugin's first SMTP server, so that needs to be
 set up. Leave the field blank and nothing changes — Pushover only, exactly
 as before.
+
+If you want the addresses kept on file but not actually sent — say someone's
+already covered by Pushover and you don't want them pinged twice for one event
+— untick **Send email alerts** (v1.6.0). The recipients stay saved and the
+channel sits dormant, ready to switch back on if Pushover ever lets you down.
 
 ## Requirements
 

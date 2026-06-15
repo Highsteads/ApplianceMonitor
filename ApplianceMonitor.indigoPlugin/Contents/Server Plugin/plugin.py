@@ -7,7 +7,15 @@
 #              events: cycleStarted, doorReady, socketReminder.
 # Author:      CliveS & Claude Opus 4.8
 # Date:        15-06-2026
-# Version:     1.5.0
+# Version:     1.6.0
+#
+# v1.6.0 (15-06-2026): EMAIL ENABLE/SILENCE TOGGLE. New per-appliance
+# ConfigUI checkbox emailEnabled (default True). When unticked, the email
+# recipients stay saved on the device but NO email is sent — so the email
+# channel can be kept on file as a dormant fallback without double-notifying
+# alongside Pushover. _send_email returns early when the box is unticked.
+# Defaults True so existing installs that rely on emailRecipients are
+# unaffected. Read live from pluginProps, so no restart needed.
 #
 # v1.5.0 (15-06-2026): EXTRA PUSHOVER RECIPIENTS. New optional per-appliance
 # ConfigUI field pushoverAlsoNotify — a comma-separated list of additional
@@ -97,7 +105,7 @@ except ImportError:
 # ============================================================
 
 PLUGIN_ID       = "com.clives.indigoplugin.appliancemonitor"
-PLUGIN_VERSION  = "1.5.0"
+PLUGIN_VERSION  = "1.6.0"
 PUSHOVER_PLUGIN = "io.thechad.indigoplugin.pushover"
 TICK_SECONDS    = 20
 
@@ -311,7 +319,13 @@ class Plugin(indigo.PluginBase):
         the cross-plugin prop-serialisation bug and picks the first Email+
         SMTP device automatically. Each address is sent individually so one
         bad address doesn't block the rest. Blank field = no email.
+
+        The emailEnabled checkbox (default True) silences this channel without
+        clearing the recipients — untick it to keep the addresses on file as a
+        dormant fallback while Pushover does the live notifying.
         """
+        if not bool(dev.pluginProps.get("emailEnabled", True)):
+            return
         recipients = [
             addr.strip()
             for addr in (dev.pluginProps.get("emailRecipients") or "").split(",")
