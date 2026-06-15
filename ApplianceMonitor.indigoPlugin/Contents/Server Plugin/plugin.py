@@ -7,7 +7,17 @@
 #              events: cycleStarted, doorReady, socketReminder.
 # Author:      CliveS & Claude Opus 4.8
 # Date:        15-06-2026
-# Version:     1.4.0
+# Version:     1.5.0
+#
+# v1.5.0 (15-06-2026): EXTRA PUSHOVER RECIPIENTS. New optional per-appliance
+# ConfigUI field pushoverAlsoNotify — a comma-separated list of additional
+# Pushover user keys (or a delivery-group key). Each gets an identical copy
+# of every alert ON TOP OF the primary recipient (the override token if set,
+# otherwise the Pushover plugin's default user). Use it to add a partner who
+# has their own Pushover account without losing your own alerts. _send_pushover
+# now loops over the de-duped recipient list, sending one Pushover per key.
+# Blank field = primary recipient only (unchanged behaviour). Read live from
+# pluginProps, so no restart needed.
 #
 # v1.4.0 (15-06-2026): EMAIL NOTIFICATIONS. New optional per-appliance
 # ConfigUI field emailRecipients — a comma-separated list of email
@@ -87,7 +97,7 @@ except ImportError:
 # ============================================================
 
 PLUGIN_ID       = "com.clives.indigoplugin.appliancemonitor"
-PLUGIN_VERSION  = "1.4.0"
+PLUGIN_VERSION  = "1.5.0"
 PUSHOVER_PLUGIN = "io.thechad.indigoplugin.pushover"
 TICK_SECONDS    = 20
 
@@ -260,21 +270,39 @@ class Plugin(indigo.PluginBase):
             )
             return
         props = dev.pluginProps
-        msg = {
+        base = {
             "msgTitle":    title,
             "msgBody":     body,
             "msgPriority": str(props.get("pushoverPriority", "0") or "0"),
             "msgSound":    props.get("pushoverSound", "vibrate") or "vibrate",
         }
-        user = (props.get("pushoverUserToken") or "").strip()
-        if user:
-            msg["msgUser"] = user
-        try:
-            pushover.executeAction("send", props=msg)
-            if self.debug:
-                self.logger.debug(f"[{dev.name}] Pushover sent: {title} / {body}")
-        except Exception:
-            self.logger.exception(f"[{dev.name}] Pushover send failed")
+        # Primary recipient: the override token if set, otherwise None — which
+        # leaves msgUser off so the Pushover plugin uses its configured default.
+        primary = (props.get("pushoverUserToken") or "").strip() or None
+        # Extra recipients (e.g. a partner's own user key, or a delivery-group
+        # key) each get an identical copy on top of the primary.
+        extras = [
+            key.strip()
+            for key in (props.get("pushoverAlsoNotify") or "").split(",")
+            if key.strip()
+        ]
+        # De-dupe while preserving order; None (the default user) is a distinct
+        # recipient and must survive the de-dupe.
+        recipients = []
+        for r in [primary] + extras:
+            if r not in recipients:
+                recipients.append(r)
+        for user in recipients:
+            who = user or "default user"
+            msg = dict(base)
+            if user:
+                msg["msgUser"] = user
+            try:
+                pushover.executeAction("send", props=msg)
+                if self.debug:
+                    self.logger.debug(f"[{dev.name}] Pushover sent to {who}: {title} / {body}")
+            except Exception:
+                self.logger.exception(f"[{dev.name}] Pushover send to {who} failed")
 
     def _send_email(self, dev, subject, body):
         """Email the same notification to any per-device recipients.

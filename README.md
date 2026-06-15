@@ -72,6 +72,7 @@ Create one Appliance Monitor device per appliance:
 | Pushover priority | -2/-1/0/1/2 (Pushover API values) | `0` |
 | Pushover sound | Pushover sound name (`vibrate` for silent buzz) | `vibrate` |
 | Pushover user token | Override Pushover plugin default user (optional) | — |
+| Also notify (extra Pushover users) | Comma-separated extra Pushover user keys (or a delivery-group key) that get a copy on top of the primary recipient — e.g. a partner with their own Pushover account (v1.5.0) | — |
 | Email recipients | Comma-separated email addresses notified alongside Pushover, for the same events ticked above (v1.4.0) | — |
 | Energy state name | State on the meter that reports a running kWh counter (e.g. `energyKwhToday`). Leave blank to skip per-cycle kWh capture | `energyKwhToday` |
 
@@ -118,6 +119,16 @@ the two states above feed control pages and dashboards. One honest caveat:
 the figure is "at today's import rate" — if you have solar or a battery,
 some of that energy may have actually been free. Leave the field blank and
 nothing changes.
+
+## Notifying more than one person (v1.5.0)
+
+The **Pushover user token** field overrides who gets the alert, so it's no
+good for "me *and* someone else" — it just swaps one recipient for another.
+The **Also notify (extra Pushover users)** field is the answer: pop a
+partner's own Pushover user key in there (comma-separate several if you like,
+or use a Pushover delivery-group key) and they get an identical copy of every
+alert on top of your own. Your existing alerts carry on untouched. Each extra
+person needs their own free Pushover account so they have their own user key.
 
 ## Email notifications (v1.4.0)
 
