@@ -62,7 +62,9 @@ Create one Appliance Monitor device per appliance:
 | Idle threshold (W) | Power below this = idle / possibly ended | `2.0` |
 | End-of-cycle debounce (min) | Sustained idle before cycle is declared ended | `3` |
 | Door-ready delay (min) | Time after cycle end before `doorReady` fires | `2` |
-| Socket-reminder delay (min) | Time after cycle end before `socketReminder` fires | `30` |
+| Socket-reminder delay (min) | Time after cycle end before `socketReminder` fires. Must be longer than the door-ready delay | `30` |
+| Ignore cycles shorter than (min) | Discard a finished cycle shorter than this without recording or announcing it (v1.7.0) | `0` (off) |
+| Ignore cycles peaking below (W) | Discard a finished cycle that never reached this draw (v1.7.0) | `0` (off) |
 | Notify on cycle start | Send Pushover when running detected | off |
 | Notify on door ready | Send Pushover at the door-ready mark | on |
 | Notify on socket reminder | Send Pushover at the socket-reminder mark | on |
@@ -83,6 +85,40 @@ default flow. If you also want extra actions (email backup, logging, etc.),
 create an Indigo trigger using the matching "Appliance Monitor: …" event
 type — the plugin fires the events on every transition regardless of the
 Pushover toggles.
+
+## Recent changes
+
+### v1.7.0 — not believing everything the meter says
+
+A power meter can misreport. One here spent an hour publishing a lifetime
+total in the state that is meant to hold today's figure, and the plugin
+believed it: a three-minute cycle that peaked at 5.2 W was recorded as having
+used 3446 kWh. Nothing checked it, so the figure went into the device state,
+into the cost sum, and into the notification the user reads. With an import
+rate configured that alert would have said "~£912".
+
+A cycle cannot use more energy than its highest reading sustained for its whole
+length, and the plugin already knows both numbers, so it now checks. Anything
+impossible is rejected with a warning naming both meter readings, and the cycle
+reports no energy rather than a made-up figure. Costing is skipped whenever the
+energy is not trustworthy, and the import rate has to look like pence per kWh
+before it will be used. If your devices are carrying an impossible figure from
+an earlier version, it is cleared on the first start after upgrading.
+
+Three other things changed:
+
+- **A restart part-way through a cycle no longer loses it.** The running peak
+  and the energy baseline are now kept on the device, so a version bump or an
+  Indigo restart during a wash no longer finishes the cycle reporting 0.000 kWh
+  and a peak measured from only the last few minutes.
+- **A brief blip no longer counts as a cycle.** Power has to stay above the run
+  threshold for two readings running, and two optional per-appliance minimums
+  let you discard anything too short or too weak to be real. Both default to
+  off, so nothing changes until you set them.
+- **Warnings are warnings again.** Indigo quietly ignores a log level given as
+  text, so every warning this plugin raised had been appearing as an ordinary
+  Info line — including the one telling you your rate variable could not be
+  read. They now show up properly.
 
 ## Tested defaults
 

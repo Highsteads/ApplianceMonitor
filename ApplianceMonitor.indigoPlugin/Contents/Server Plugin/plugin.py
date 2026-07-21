@@ -6,8 +6,30 @@
 #              notifications directly and also fires three Indigo custom
 #              events: cycleStarted, doorReady, socketReminder.
 # Author:      CliveS & Claude Opus 4.8
-# Date:        15-06-2026
-# Version:     1.6.0
+# Date:        21-07-2026
+# Version:     1.7.0
+#
+# v1.7.0 (21-07-2026): TRUST NOTHING FROM THE METER. Deep-review batch 1.
+# * Cycle energy is now bounded by physics. A cycle cannot use more than its
+#   peak draw sustained for its whole duration, so an absurd delta from a
+#   glitching source meter is rejected with a WARNING instead of being stored,
+#   costed and pushed to the user. Live case: a source reporting a lifetime
+#   total in a "today" counter recorded 3446.586 kWh for a 3-minute, 5.2 W
+#   cycle, armed to notify "~£912" once a rate variable was configured.
+# * Costing is skipped outright whenever the energy figure was not believable,
+#   and the import rate must now fall in a sane pence/kWh band.
+# * In-flight cycle metrics (peak watts, energy baseline) are now device states
+#   as well as in-memory, so a restart part-way through a cycle no longer
+#   reports 0.000 kWh and a partial peak.
+# * A cycle needs two consecutive above-threshold ticks to start, and can be
+#   discarded on completion by new per-appliance minimums (minCycleMinutes,
+#   minCyclePeakWatts, both default 0 = off), so a standby blip no longer
+#   fires three notifications.
+# * log() now maps its level name to a real logging level. Indigo silently
+#   ignores a STRING level, so every warning this plugin raised had been
+#   logging as a plain Info line.
+# * A mistyped energy state key now warns instead of failing silently forever,
+#   and the socket reminder must be later than the door-ready delay.
 #
 # v1.6.0 (15-06-2026): EMAIL ENABLE/SILENCE TOGGLE. New per-appliance
 # ConfigUI checkbox emailEnabled (default True). When unticked, the email
@@ -84,6 +106,7 @@ try:
 except ImportError:
     pass
 
+import logging
 import os as _os
 import sys as _sys
 import time
@@ -105,7 +128,7 @@ except ImportError:
 # ============================================================
 
 PLUGIN_ID       = "com.clives.indigoplugin.appliancemonitor"
-PLUGIN_VERSION  = "1.6.0"
+PLUGIN_VERSION  = "1.7.0"
 PUSHOVER_PLUGIN = "io.thechad.indigoplugin.pushover"
 TICK_SECONDS    = 20
 
@@ -115,12 +138,48 @@ VALID_STATES    = ("idle", "running", "finishing", "doorWait", "off")
 # falsely drops cycle tracking.
 _OFFLINE_OK_STATES = ("idle", "finishing", "doorWait")
 
+# Cycle-energy plausibility guard (v1.7.0). A cycle cannot use more energy
+# than its peak draw sustained for its whole duration, so the measured peak
+# and duration give a hard ceiling. SLACK covers metering jitter and a peak
+# sampled slightly below the true one.
+KWH_PLAUSIBILITY_SLACK = 1.5
+# Absolute ceiling for one appliance cycle, used when no usable peak was
+# measured (e.g. the peak was lost with a restart part-way through).
+MAX_CYCLE_KWH          = 20.0
+# Import-rate sanity band in pence/kWh. Outside this the variable almost
+# certainly holds something other than pence — pounds, a typo, a sentinel.
+MIN_RATE_P             = 0.5
+MAX_RATE_P             = 200.0
+# Consecutive above-threshold ticks before a cycle is declared, so a single
+# stray reading cannot invent one.
+START_CONFIRM_TICKS    = 2
+# Schema marker for the in-flight cycle states. Bump only when their meaning
+# changes and existing values must be discarded rather than trusted.
+CYCLE_STATE_VERSION    = 1
+
 
 # ============================================================
 # Helpers
 # ============================================================
 
+_LOG_LEVELS = {
+    "DEBUG":   logging.DEBUG,
+    "INFO":    logging.INFO,
+    "WARNING": logging.WARNING,
+    "ERROR":   logging.ERROR,
+}
+
+
 def log(message, level="INFO"):
+    """Log through indigo.server.log with a millisecond timestamp.
+
+    Indigo's level= wants a Python logging level INT. Passing the string
+    "WARNING" does not raise — it is silently ignored and the line logs as
+    plain Info, which hid every warning this plugin raised until v1.7.0.
+    Map the name to the int and fall back to Info for anything unrecognised.
+    """
+    if not isinstance(level, int):
+        level = _LOG_LEVELS.get(str(level).upper(), logging.INFO)
     indigo.server.log(f"[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] {message}", level=level)
 
 
@@ -202,7 +261,46 @@ class Plugin(indigo.PluginBase):
             if dev.states.get(key) is None:
                 dev.updateStateOnServer(key, value=False)
         self.devices[dev.id] = dev
-        self.runtime[dev.id] = {"peak": 0.0, "kwh_start": None}
+
+        # Rebuild the in-flight cycle metrics from the persisted states rather
+        # than zeroing them (v1.7.0). cycleState survives a restart, so the
+        # peak and energy baseline that belong to it must survive too —
+        # otherwise a restart part-way through a wash finishes the cycle
+        # reporting 0.000 kWh and a peak measured only from the tail.
+        # One-time upgrade for devices created before v1.7.0. A brand-new Number
+        # state materialises as 0.0, which is indistinguishable from a genuine
+        # energy baseline of zero, so a marker state is the only safe signal.
+        # A new Integer state also reads 0, which is exactly what we want here.
+        if _i(dev.states.get("cycleStateVersion"), 0) < CYCLE_STATE_VERSION:
+            dev.updateStateOnServer("cyclePeakWatts", value=0.0, uiValue="0 W")
+            dev.updateStateOnServer("cycleKwhStart",  value=-1.0, uiValue="n/a")
+            # Clear any historical cycle energy that this version would reject.
+            # Installs upgrading from an earlier version can be carrying an
+            # impossible figure from a source meter that misreported, and it
+            # would otherwise sit on control pages until the next cycle ends.
+            stale_kwh = _f(dev.states.get("lastCycleEnergyKwh"), 0.0)
+            if stale_kwh > MAX_CYCLE_KWH:
+                log(f"{dev.name}: clearing an impossible stored cycle energy of "
+                    f"{stale_kwh:.3f} kWh left by an earlier version", level="WARNING")
+                dev.updateStateOnServer("lastCycleEnergyKwh", value=0.0, uiValue="n/a")
+                dev.updateStateOnServer("lastCycleCostGbp",   value=0.0, uiValue="—")
+                dev.updateStateOnServer("lastCycleRateP",     value=0.0, uiValue="—")
+            dev.updateStateOnServer("cycleStateVersion", value=CYCLE_STATE_VERSION)
+            peak_so_far, stored_base = 0.0, -1.0
+        else:
+            peak_so_far = _f(dev.states.get("cyclePeakWatts"), 0.0)
+            stored_base = _f(dev.states.get("cycleKwhStart"), -1.0)
+        self.runtime[dev.id] = {
+            "peak":      peak_so_far,
+            "kwh_start": stored_base if stored_base >= 0 else None,
+            "above":     0,
+        }
+        if dev.states.get("cycleState") == "running":
+            self.logger.info(
+                f"  {dev.name}: resuming a cycle already in progress "
+                f"(peak so far {peak_so_far:.0f} W, energy baseline "
+                f"{'recovered' if stored_base >= 0 else 'unavailable — this cycle will not report energy'})"
+            )
 
     def deviceStopComm(self, dev):
         self.devices.pop(dev.id, None)
@@ -238,8 +336,21 @@ class Plugin(indigo.PluginBase):
             errors["debounceMinutes"] = "Must be zero or a positive integer (minutes); 0 disables debounce."
         if _i(valuesDict.get("doorDelayMinutes"), -1) < 0:
             errors["doorDelayMinutes"] = "Must be zero or a positive integer (minutes)."
-        if _i(valuesDict.get("socketReminderMinutes"), -1) < 1:
+        door_min   = _i(valuesDict.get("doorDelayMinutes"), -1)
+        socket_min = _i(valuesDict.get("socketReminderMinutes"), -1)
+        if socket_min < 1:
             errors["socketReminderMinutes"] = "Must be a positive integer (minutes)."
+        elif door_min >= 0 and socket_min <= door_min:
+            # Otherwise both notifications land on the same tick and the cycle
+            # resets to idle immediately after the door-ready alert.
+            errors["socketReminderMinutes"] = (
+                "Must be greater than the door-ready delay, otherwise both "
+                "notifications fire together."
+            )
+        if _i(valuesDict.get("minCycleMinutes"), -1) < 0:
+            errors["minCycleMinutes"] = "Must be zero or a positive integer (minutes); 0 disables the check."
+        if _f(valuesDict.get("minCyclePeakWatts"), -1) < 0:
+            errors["minCyclePeakWatts"] = "Must be zero or a positive number of watts; 0 disables the check."
         if errors:
             return (False, valuesDict, errors)
         return (True, valuesDict)
@@ -468,8 +579,20 @@ class Plugin(indigo.PluginBase):
                 state = "idle"
 
         if state == "idle":
+            # Require consecutive above-threshold ticks before declaring a
+            # cycle, so one stray reading cannot invent a whole cycle and its
+            # three notifications (v1.7.0).
+            rt = self.runtime.setdefault(dev.id, {"peak": 0.0, "kwh_start": None, "above": 0})
             if watts >= run_w:
-                self._enter_running(dev, now, src, energy_key)
+                rt["above"] = rt.get("above", 0) + 1
+                if rt["above"] >= START_CONFIRM_TICKS:
+                    self._enter_running(dev, now, src, energy_key, watts)
+                elif self.debug:
+                    self.logger.debug(
+                        f"[{dev.name}] above threshold {rt['above']}/{START_CONFIRM_TICKS}"
+                    )
+            else:
+                rt["above"] = 0
 
         elif state == "running":
             self._track_peak(dev, watts)
@@ -495,7 +618,7 @@ class Plugin(indigo.PluginBase):
         elif state == "doorWait":
             if watts >= run_w:
                 # new cycle - cancel pending notifications, jump to running
-                self._enter_running(dev, now, src, energy_key)
+                self._enter_running(dev, now, src, energy_key, watts)
                 return
             finished_at     = _i(dev.states.get("cycleFinishedAt"), 0)
             elapsed         = now - finished_at if finished_at else 0
@@ -519,21 +642,43 @@ class Plugin(indigo.PluginBase):
     # --------------------------------------------------------
 
     def _track_peak(self, dev, watts):
-        """Update the in-cycle peak-watts tracker."""
-        rt = self.runtime.setdefault(dev.id, {"peak": 0.0, "kwh_start": None})
+        """Update the in-cycle peak-watts tracker.
+
+        Mirrored to a device state so the peak survives a plugin restart.
+        Only written when it actually increases, so this costs at most a
+        handful of writes per cycle rather than one every tick.
+        """
+        rt = self.runtime.setdefault(dev.id, {"peak": 0.0, "kwh_start": None, "above": 0})
         if watts > rt["peak"]:
             rt["peak"] = watts
+            dev.updateStateOnServer("cyclePeakWatts", value=watts, uiValue=f"{watts:.0f} W")
 
-    def _enter_running(self, dev, now, src=None, energy_key=""):
+    def _enter_running(self, dev, now, src=None, energy_key="", watts=0.0):
         prev = dev.states.get("cycleState", "idle")
         # Snapshot the source energy counter so we can compute kWh used at
         # the end of the cycle. None means "no counter available".
         kwh_start = None
         if src is not None and energy_key:
-            kwh_start = _f(src.states.get(energy_key), -1.0)
-            if kwh_start < 0:
-                kwh_start = None
-        self.runtime[dev.id] = {"peak": 0.0, "kwh_start": kwh_start}
+            if energy_key not in src.states:
+                # A mistyped key would otherwise fail silently forever, with
+                # every cycle reporting no energy and no explanation.
+                log(f"{dev.name}: source '{src.name}' has no state '{energy_key}' — "
+                    f"cycle energy and cost cannot be measured. Check the "
+                    f"Energy state key in this appliance's settings.", level="WARNING")
+            else:
+                kwh_start = _f(src.states.get(energy_key), -1.0)
+                if kwh_start < 0:
+                    kwh_start = None
+        # Seed the peak with the reading that triggered the cycle, so a short
+        # cycle cannot record a 0 W peak.
+        self.runtime[dev.id] = {"peak": _f(watts, 0.0), "kwh_start": kwh_start, "above": 0}
+        dev.updateStateOnServer("cyclePeakWatts", value=_f(watts, 0.0),
+                                uiValue=f"{_f(watts, 0.0):.0f} W")
+        dev.updateStateOnServer(
+            "cycleKwhStart",
+            value=(kwh_start if kwh_start is not None else -1.0),
+            uiValue=(f"{kwh_start:.3f} kWh" if kwh_start is not None else "n/a"),
+        )
 
         dev.updateStateOnServer("cycleState",      value="running")
         dev.updateStateOnServer("cycleStartedAt",  value=now)
@@ -544,28 +689,79 @@ class Plugin(indigo.PluginBase):
         if prev != "running":
             self._notify(dev, "cycleStarted")
 
+    def _plausible_cycle_kwh(self, dev, kwh_used, peak_w, minutes, kwh_start, kwh_now):
+        """Reject a physically impossible cycle-energy delta.
+
+        A cycle cannot consume more than its peak draw sustained for its whole
+        duration, and both are known by the time this is called. Without the
+        check, a source meter that briefly reports a lifetime total in a
+        "today" counter writes nonsense straight into the stored state, the
+        cost, and the notification the user reads.
+
+        Returns the accepted kWh, or None when the delta is not believable.
+        """
+        ceiling = MAX_CYCLE_KWH
+        if peak_w > 0:
+            physical = (peak_w / 1000.0) * (max(minutes, 1) / 60.0) * KWH_PLAUSIBILITY_SLACK
+            # Keep a small floor so a brief cycle with a modest sampled peak
+            # cannot reject a perfectly real reading.
+            ceiling = min(ceiling, max(physical, 0.05))
+        if kwh_used > ceiling:
+            log(f"{dev.name}: implausible cycle energy {kwh_used:.3f} kWh rejected — "
+                f"a peak of {peak_w:.0f} W over {minutes} min allows at most "
+                f"{ceiling:.3f} kWh. Source counter read {kwh_start:.3f} -> {kwh_now:.3f}. "
+                f"Energy and cost not recorded for this cycle.", level="WARNING")
+            return None
+        return kwh_used
+
     def _enter_door_wait(self, dev, finished_at, src=None, energy_key=""):
         started_at = _i(dev.states.get("cycleStartedAt"), 0)
         minutes    = (finished_at - started_at) // 60 if started_at else 0
+        if minutes < 0:
+            # A clock step-back between cycle start and end would otherwise
+            # report a negative duration and poison the plausibility ceiling.
+            minutes = 0
 
         # Finalise cycle metrics: peak watts and energy used.
         rt        = self.runtime.get(dev.id, {"peak": 0.0, "kwh_start": None})
         peak_w    = float(rt.get("peak", 0.0))
         kwh_start = rt.get("kwh_start")
+
+        # Discard a cycle that fails the configured minimums before anything is
+        # recorded or announced. Both default to 0 (off), so upgrading installs
+        # keep their existing behaviour until the user opts in.
+        min_minutes = _i(dev.pluginProps.get("minCycleMinutes"), 0)
+        min_peak    = _f(dev.pluginProps.get("minCyclePeakWatts"), 0.0)
+        if (min_minutes and minutes < min_minutes) or (min_peak and peak_w < min_peak):
+            log(f"{dev.name}: ignoring a {minutes} min cycle peaking at {peak_w:.0f} W — "
+                f"below the minimum set for this appliance "
+                f"(min {min_minutes} min, min {min_peak:.0f} W)")
+            self._clear_cycle_metrics(dev)
+            self._reset_to_idle(dev)
+            return
+
         kwh_used  = 0.0
+        kwh_known = False
         if kwh_start is not None and src is not None and energy_key:
             kwh_now = _f(src.states.get(energy_key), -1.0)
             if kwh_now >= 0:
-                kwh_used = kwh_now - kwh_start
+                delta = kwh_now - kwh_start
                 # Counter rollover (e.g. energyKwhToday at midnight) would
                 # produce a negative delta — clamp to 0 and log if debug.
-                if kwh_used < 0:
+                if delta < 0:
                     if self.debug:
                         self.logger.debug(
                             f"[{dev.name}] energy counter rollover detected "
                             f"({kwh_start:.3f} -> {kwh_now:.3f}); cycle kWh set to 0"
                         )
-                    kwh_used = 0.0
+                    kwh_used, kwh_known = 0.0, True
+                else:
+                    checked = self._plausible_cycle_kwh(
+                        dev, delta, peak_w, minutes, kwh_start, kwh_now)
+                    if checked is None:
+                        kwh_used, kwh_known = 0.0, False
+                    else:
+                        kwh_used, kwh_known = checked, True
 
         dev.updateStateOnServer("cycleState",         value="doorWait")
         dev.updateStateOnServer("cycleFinishedAt",    value=finished_at)
@@ -573,20 +769,27 @@ class Plugin(indigo.PluginBase):
         dev.updateStateOnServer("lastCyclePeakWatts", value=peak_w,
                                 uiValue=f"{peak_w:.0f} W")
         dev.updateStateOnServer("lastCycleEnergyKwh", value=round(kwh_used, 3),
-                                uiValue=f"{kwh_used:.3f} kWh")
+                                uiValue=(f"{kwh_used:.3f} kWh" if kwh_known else "n/a"))
 
         # Cost-per-cycle (v1.3.0): kWh used × the import rate (pence/kWh) read
         # from a user-named Indigo variable at cycle end. This is "what the
         # cycle would cost at today's import rate" — homes with solar/battery
         # may have actually drawn some of it free, which is the honest caveat.
+        # Costing is skipped outright when the energy figure was not believable
+        # (v1.7.0) — a bad kWh must never be turned into a money figure.
         rate_p = 0.0
         rate_var = (dev.pluginProps.get("rateVariableName") or "").strip()
-        if rate_var and kwh_used > 0:
+        if rate_var and kwh_known and kwh_used > 0:
             try:
                 rate_p = float(indigo.variables[rate_var].value)
             except Exception as exc:
                 log(f"{dev.name}: rate variable {rate_var!r} unreadable "
                     f"({exc}) — cycle cost skipped", level="WARNING")
+                rate_p = 0.0
+            if rate_p and not (MIN_RATE_P <= rate_p <= MAX_RATE_P):
+                log(f"{dev.name}: import rate {rate_p} from {rate_var!r} is outside the "
+                    f"sane band {MIN_RATE_P}-{MAX_RATE_P} p/kWh — cycle cost skipped. "
+                    f"Check the variable holds pence per kWh, not pounds.", level="WARNING")
                 rate_p = 0.0
         cost_gbp = kwh_used * rate_p / 100.0 if rate_p > 0 else 0.0
         dev.updateStateOnServer("lastCycleCostGbp", value=round(cost_gbp, 3),
@@ -598,15 +801,25 @@ class Plugin(indigo.PluginBase):
         dev.updateStateOnServer("doorNotified",       value=False)
         dev.updateStateOnServer("socketNotified",     value=False)
         # Reset runtime so the next cycle starts clean.
-        self.runtime[dev.id] = {"peak": 0.0, "kwh_start": None}
+        self._clear_cycle_metrics(dev)
 
-        if kwh_start is not None:
+        if kwh_known:
             cost_txt = f", ~£{cost_gbp:.2f} @ {rate_p:.1f}p" if cost_gbp > 0 else ""
             log(f"{dev.name}: cycle ended (duration {minutes} min, "
                 f"peak {peak_w:.0f} W, used {kwh_used:.3f} kWh{cost_txt})")
         else:
             log(f"{dev.name}: cycle ended (duration {minutes} min, "
-                f"peak {peak_w:.0f} W)")
+                f"peak {peak_w:.0f} W, energy not measured)")
+
+    def _clear_cycle_metrics(self, dev):
+        """Reset the in-flight cycle metrics, in memory and on the device.
+
+        Both live in device states as well as self.runtime so they survive a
+        restart, so both have to be cleared together.
+        """
+        self.runtime[dev.id] = {"peak": 0.0, "kwh_start": None, "above": 0}
+        dev.updateStateOnServer("cyclePeakWatts", value=0.0, uiValue="0 W")
+        dev.updateStateOnServer("cycleKwhStart",  value=-1.0, uiValue="n/a")
 
     def _reset_to_idle(self, dev):
         dev.updateStateOnServer("cycleState",   value="idle")

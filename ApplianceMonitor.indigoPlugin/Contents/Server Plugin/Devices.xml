@@ -57,6 +57,16 @@
                 <Description>How long power must stay below the idle threshold before the cycle is declared ended. Avoids false ends during mid-cycle quiet phases. Set to 0 to disable debounce (cycle ends on first sub-idle reading — only safe for appliances whose final phase never dips below idleThresholdWatts before fully stopping).</Description>
             </Field>
 
+            <Field id="minCycleMinutes" type="textfield" defaultValue="0">
+                <Label>Ignore cycles shorter than (min):</Label>
+                <Description>Discard a completed cycle shorter than this, without recording it or sending any notification. Use it to stop a brief standby blip being reported as a wash. 0 disables the check.</Description>
+            </Field>
+
+            <Field id="minCyclePeakWatts" type="textfield" defaultValue="0">
+                <Label>Ignore cycles peaking below (W):</Label>
+                <Description>Discard a completed cycle whose highest reading never reached this, without recording it or sending any notification. Set it well above standby but below the appliance's real running draw. 0 disables the check.</Description>
+            </Field>
+
             <Field id="separator2" type="separator"/>
 
             <Field id="doorDelayMinutes" type="textfield" defaultValue="2">
@@ -201,6 +211,25 @@
                 <ValueType>Number</ValueType>
                 <TriggerLabel>Last cycle rate changes</TriggerLabel>
                 <ControlPageLabel>Last Cycle Rate (p/kWh)</ControlPageLabel>
+            </State>
+            <!-- In-flight cycle metrics. Held as states as well as in memory so
+                 they survive a plugin restart part-way through a cycle. -->
+            <State id="cyclePeakWatts">
+                <ValueType>Number</ValueType>
+                <TriggerLabel>Running cycle peak watts changes</TriggerLabel>
+                <ControlPageLabel>This Cycle Peak (W)</ControlPageLabel>
+            </State>
+            <State id="cycleKwhStart">
+                <ValueType>Number</ValueType>
+                <TriggerLabel>Running cycle energy baseline changes</TriggerLabel>
+                <ControlPageLabel>This Cycle Energy Baseline (kWh)</ControlPageLabel>
+            </State>
+            <!-- Schema marker for the two states above. A newly created Integer
+                 state reads 0, which is how an upgrading device is recognised. -->
+            <State id="cycleStateVersion">
+                <ValueType>Integer</ValueType>
+                <TriggerLabel>Cycle state schema version changes</TriggerLabel>
+                <ControlPageLabel>Cycle State Schema Version</ControlPageLabel>
             </State>
             <State id="doorNotified">
                 <ValueType>Boolean</ValueType>
