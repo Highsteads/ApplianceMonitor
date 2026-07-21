@@ -13,6 +13,7 @@ import pytest
 
 VALID = {
     "sourceDeviceId":        "200",
+    "sourceStateKey":        "powerWatts",
     "runThresholdWatts":     "5.0",
     "idleThresholdWatts":    "2.0",
     "debounceMinutes":       "3",
@@ -133,3 +134,90 @@ def test_tick_survives_blank_config_on_every_numeric_field(plugin, appliance, me
         appliance.pluginProps[field] = ""
     plugin._tick_device(appliance)            # must not raise
     assert appliance.states["cycleState"] in ("idle", "running", "off")
+
+
+# --------------------------------------------------------------------------
+# v1.8.0 — the state names and the rate variable are checked against reality
+# --------------------------------------------------------------------------
+
+def test_a_mistyped_power_state_name_is_refused(plugin, appliance):
+    ok, _, errors = validate(plugin, sourceStateKey="powerWattz")
+    assert not ok
+    assert "powerWatts" in errors["sourceStateKey"]
+
+
+def test_a_blank_power_state_name_is_refused(plugin, appliance):
+    ok, _, errors = validate(plugin, sourceStateKey="")
+    assert not ok
+    assert "sourceStateKey" in errors
+
+
+def test_a_mistyped_energy_state_name_is_refused(plugin, appliance):
+    ok, _, errors = validate(plugin, sourceEnergyStateKey="energyKwhTodya")
+    assert not ok
+    assert "sourceEnergyStateKey" in errors
+
+
+def test_a_blank_energy_state_name_is_fine(plugin, appliance):
+    """Blank means the meter has no kWh counter — a supported setup."""
+    ok, *_ = validate(plugin, sourceEnergyStateKey="")
+    assert ok
+
+
+def test_an_appliance_cannot_watch_itself(plugin, appliance):
+    ok, _, errors = validate(plugin, sourceDeviceId="100")
+    assert not ok
+    assert "sourceDeviceId" in errors
+
+
+def test_an_unknown_rate_variable_is_refused(plugin, appliance):
+    ok, _, errors = validate(plugin, rateVariableName="no_such_variable")
+    assert not ok
+    assert "rateVariableName" in errors
+
+
+def test_a_real_rate_variable_is_accepted(plugin, appliance, indigo_mod):
+    from conftest import FakeVariable
+    indigo_mod.variables["tracker_rate_today"] = FakeVariable("tracker_rate_today", "24.5")
+    ok, *_ = validate(plugin, rateVariableName="tracker_rate_today")
+    assert ok
+
+
+def test_a_blank_rate_variable_is_fine(plugin, appliance):
+    ok, *_ = validate(plugin, rateVariableName="")
+    assert ok
+
+
+# --------------------------------------------------------------------------
+# Value coercion — a string "false" must not read as True
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("value,expected", [
+    (True, True), (False, False),
+    ("true", True), ("false", False),
+    ("True", True), ("FALSE", False),
+    ("1", True), ("0", False),
+    ("yes", True), ("no", False),
+    (1, True), (0, False),
+])
+def test_as_bool_coerces_indigo_values(plugin_mod, value, expected):
+    assert plugin_mod._as_bool(value, default=None) is expected
+
+
+def test_as_bool_falls_back_for_blank_and_missing(plugin_mod):
+    assert plugin_mod._as_bool(None, True) is True
+    assert plugin_mod._as_bool("", False) is False
+
+
+def test_email_is_silenced_by_the_string_false(plugin, appliance, indigo_mod):
+    appliance.pluginProps["emailEnabled"]    = "false"
+    appliance.pluginProps["emailRecipients"] = "someone@example.com"
+    plugin._send_email(appliance, "Cycle done", "body")
+    assert indigo_mod.server.emails == []
+
+
+def test_the_timestamp_toggle_writes_the_pref_to_disk(plugin):
+    before = plugin.pluginPrefs.get("timestampEnabled")
+    plugin.menuToggleTimestamps()
+    assert plugin.pluginPrefs["timestampEnabled"] is not before
+    assert plugin.saved_prefs == 1

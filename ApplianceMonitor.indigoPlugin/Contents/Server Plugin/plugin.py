@@ -7,7 +7,31 @@
 #              events: cycleStarted, doorReady, socketReminder.
 # Author:      CliveS & Claude Opus 4.8
 # Date:        21-07-2026
-# Version:     1.7.1
+# Version:     1.8.0
+#
+# v1.8.0 (21-07-2026): Deep-review batch 3 — the mediums.
+# * A cycle is no longer thrown away when the meter goes offline while the
+#   plugin is waiting out the end-of-cycle debounce. The duration, peak and
+#   energy are written first, then the appliance moves to "off".
+# * A missing or deleted source device used to log the same error every 20
+#   seconds forever. It is now logged once on entry, repeated at most hourly,
+#   marks the appliance device red in the Indigo device list, and clears with
+#   a single line when the meter comes back.
+# * A mistyped power state name behaved exactly like a meter reading 0 W, so
+#   the appliance simply never ran and nothing was ever logged. Both state
+#   names are now checked when the config dialog is saved, and a key that
+#   disappears at runtime raises the same one-shot fault.
+# * A cycle spanning midnight on a daily kWh counter used to swallow the whole
+#   reading behind a debug-only line. It now warns for real and reports the
+#   energy as unmeasured rather than as a confident 0.000 kWh, so no cost is
+#   invented from it.
+# * A trigger saved without an appliance chosen quietly fired for EVERY
+#   appliance. It is now rejected when the trigger is saved, and an existing
+#   one warns once and fires for nothing.
+# * One deleted or broken trigger no longer swallows the Pushover, the email
+#   and the rest of that appliance's tick.
+# * Pushover user keys and email addresses are masked in the log. A Pushover
+#   user key is a credential, and event logs get pasted into forum posts.
 #
 # v1.7.1 (21-07-2026): Deep-review batch 2 — first test suite (87 tests,
 # tests/ at the repo root, no Indigo or hardware needed). Writing it found
@@ -138,7 +162,7 @@ except ImportError:
 # ============================================================
 
 PLUGIN_ID       = "com.clives.indigoplugin.appliancemonitor"
-PLUGIN_VERSION  = "1.7.1"
+PLUGIN_VERSION  = "1.8.0"
 PUSHOVER_PLUGIN = "io.thechad.indigoplugin.pushover"
 TICK_SECONDS    = 20
 
@@ -166,6 +190,9 @@ START_CONFIRM_TICKS    = 2
 # Schema marker for the in-flight cycle states. Bump only when their meaning
 # changes and existing values must be discarded rather than trusted.
 CYCLE_STATE_VERSION    = 1
+# A persistent source fault (missing device, missing state key) is logged once
+# when it starts and then at most this often, rather than on every 20 s tick.
+FAULT_REPEAT_SECONDS   = 3600
 
 
 # ============================================================
@@ -207,6 +234,46 @@ def _i(value, default):
         return default
 
 
+def _as_bool(value, default=False):
+    """Coerce an Indigo value to a bool without being fooled by "false".
+
+    Device states and pluginProps can both come back as strings — a state
+    published by another plugin, or a checkbox re-serialised when a config
+    dialog is saved. bool("false") is True, which is exactly the wrong answer.
+    """
+    if isinstance(value, bool):
+        return value
+    if value is None or value == "":
+        return default
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return str(value).strip().lower() in ("true", "1", "yes", "on")
+
+
+def _mask_key(value):
+    """Mask a Pushover user key for the log.
+
+    A Pushover user key is a credential and Indigo event logs get pasted whole
+    into forum support posts. The first few characters are enough to tell two
+    recipients apart while leaving the key unusable.
+    """
+    key = (value or "").strip()
+    if not key:
+        return "default user"
+    if len(key) <= 8:
+        return f"{key[:2]}..."
+    return f"{key[:4]}...{key[-2:]}"
+
+
+def _mask_email(value):
+    """Mask an email address for the log — first character plus the domain."""
+    addr = (value or "").strip()
+    if "@" not in addr:
+        return "(address hidden)"
+    local, _, domain = addr.partition("@")
+    return f"{local[:1]}...@{domain}"
+
+
 # ============================================================
 # Plugin class
 # ============================================================
@@ -221,6 +288,10 @@ class Plugin(indigo.PluginBase):
         self.devices         = {}   # {dev.id: indigo.Device} - tracked appliances
         self.runtime         = {}   # {dev.id: {"peak": float, "kwh_start": float|None}}
                                     # transient per-cycle metrics, reset on every _enter_running
+        self.source_faults   = {}   # {dev.id: {"key": str, "logged": float}}
+                                    # latched source faults, so a missing meter is
+                                    # logged once rather than every 20 seconds
+        self.bad_triggers    = set()   # trigger ids already warned about
         self.timestamp_enabled = bool(pluginPrefs.get("timestampEnabled", True))
 
         if install_timestamp_filter:
@@ -315,6 +386,7 @@ class Plugin(indigo.PluginBase):
     def deviceStopComm(self, dev):
         self.devices.pop(dev.id, None)
         self.runtime.pop(dev.id, None)
+        self.source_faults.pop(dev.id, None)
         self.logger.info(f"Stopped watching: {dev.name}")
 
     @staticmethod
@@ -334,6 +406,31 @@ class Plugin(indigo.PluginBase):
         src_id = _i(valuesDict.get("sourceDeviceId"), 0)
         if src_id == 0 or src_id not in indigo.devices:
             errors["sourceDeviceId"] = "Pick a power-meter device."
+        elif devId and src_id == _i(devId, 0):
+            errors["sourceDeviceId"] = "An appliance cannot watch itself — pick the power meter."
+        else:
+            # Both state names are free text, and a typo used to behave exactly
+            # like a meter reporting 0 W: the appliance never ran and nothing
+            # was ever logged. Check them against the meter's real state list.
+            src  = indigo.devices[src_id]
+            keys = sorted(str(k) for k in src.states.keys() if not str(k).endswith(".ui"))
+            offer = ", ".join(keys[:12]) or "(none)"
+            power_key = (valuesDict.get("sourceStateKey") or "").strip()
+            if not power_key:
+                errors["sourceStateKey"] = "Name the state on the meter that reports watts."
+            elif power_key not in src.states:
+                errors["sourceStateKey"] = (
+                    f"'{src.name}' has no state called '{power_key}'. Available: {offer}"
+                )
+            energy_key = (valuesDict.get("sourceEnergyStateKey") or "").strip()
+            if energy_key and energy_key not in src.states:
+                errors["sourceEnergyStateKey"] = (
+                    f"'{src.name}' has no state called '{energy_key}'. Leave it blank if the "
+                    f"meter has no kWh counter. Available: {offer}"
+                )
+        rate_var = (valuesDict.get("rateVariableName") or "").strip()
+        if rate_var and rate_var not in indigo.variables:
+            errors["rateVariableName"] = "No Indigo variable with that name."
         run_w  = _f(valuesDict.get("runThresholdWatts"), -1)
         idle_w = _f(valuesDict.get("idleThresholdWatts"), -1)
         if run_w <= 0:
@@ -373,24 +470,60 @@ class Plugin(indigo.PluginBase):
     # Trigger lifecycle - per CLAUDE.md, the only way to fire events
     # --------------------------------------------------------
 
+    def validateEventConfigUi(self, valuesDict, typeId, eventId):
+        """An appliance must actually be chosen.
+
+        A blank selection used to mean "fire for every appliance", silently, so
+        a trigger saved before the appliance was picked went off for the whole
+        house. Reject it at save time instead.
+        """
+        errors = indigo.Dict()
+        target = str(valuesDict.get("applianceDevice", "") or "").strip()
+        if not target.isdigit():
+            errors["applianceDevice"] = "Choose which appliance this trigger listens to."
+        if errors:
+            return (False, valuesDict, errors)
+        return (True, valuesDict)
+
     def triggerStartProcessing(self, trigger):
         self.event_triggers[trigger.id] = trigger
 
     def triggerStopProcessing(self, trigger):
         self.event_triggers.pop(trigger.id, None)
+        self.bad_triggers.discard(trigger.id)
 
     def _fire_event(self, dev, event_id):
         """Fire every trigger whose pluginTypeId matches event_id AND whose
-        applianceDevice points at dev.id."""
+        applianceDevice points at dev.id.
+
+        Fails closed: a trigger with no appliance chosen fires for nothing and
+        warns once, rather than firing for every appliance the plugin ticks.
+        Each execute is guarded on its own so one deleted or broken trigger
+        cannot swallow the Pushover, the email and the rest of the tick.
+        """
         fired = 0
-        for trigger in self.event_triggers.values():
+        for trigger in list(self.event_triggers.values()):
             if trigger.pluginTypeId != event_id:
                 continue
-            target = str(trigger.pluginProps.get("applianceDevice", "")).strip()
-            if target and target.isdigit() and int(target) != dev.id:
+            target = str(trigger.pluginProps.get("applianceDevice", "") or "").strip()
+            if not target.isdigit():
+                if trigger.id not in self.bad_triggers:
+                    self.bad_triggers.add(trigger.id)
+                    self.logger.warning(
+                        f"Trigger '{getattr(trigger, 'name', trigger.id)}' has no appliance "
+                        f"chosen, so it will never fire. Open it and pick one."
+                    )
                 continue
-            indigo.trigger.execute(trigger)
-            fired += 1
+            if int(target) != dev.id:
+                continue
+            try:
+                indigo.trigger.execute(trigger)
+                fired += 1
+            except Exception:
+                self.logger.exception(
+                    f"[{dev.name}] could not execute trigger "
+                    f"'{getattr(trigger, 'name', trigger.id)}' for event {event_id}"
+                )
         if self.debug:
             self.logger.debug(f"[{dev.name}] event {event_id} -> {fired} trigger(s)")
 
@@ -426,7 +559,9 @@ class Plugin(indigo.PluginBase):
             if r not in recipients:
                 recipients.append(r)
         for user in recipients:
-            who = user or "default user"
+            # Masked — a Pushover user key is a credential, and event logs get
+            # pasted whole into forum support posts.
+            who = _mask_key(user)
             msg = dict(base)
             if user:
                 msg["msgUser"] = user
@@ -449,7 +584,7 @@ class Plugin(indigo.PluginBase):
         clearing the recipients — untick it to keep the addresses on file as a
         dormant fallback while Pushover does the live notifying.
         """
-        if not bool(dev.pluginProps.get("emailEnabled", True)):
+        if not _as_bool(dev.pluginProps.get("emailEnabled", True), True):
             return
         recipients = [
             addr.strip()
@@ -462,9 +597,11 @@ class Plugin(indigo.PluginBase):
             try:
                 indigo.server.sendEmailTo(addr, subject=subject, body=body)
                 if self.debug:
-                    self.logger.debug(f"[{dev.name}] email sent to {addr}: {subject}")
+                    self.logger.debug(
+                        f"[{dev.name}] email sent to {_mask_email(addr)}: {subject}")
             except Exception:
-                self.logger.exception(f"[{dev.name}] email send to {addr} failed")
+                self.logger.exception(
+                    f"[{dev.name}] email send to {_mask_email(addr)} failed")
 
     # Per-event notification config:
     #   checkbox_key   — pluginProps key that gates sending
@@ -493,7 +630,7 @@ class Plugin(indigo.PluginBase):
         if not cfg:
             return
         checkbox_key, title_key, default_title, body_template = cfg
-        if not bool(dev.pluginProps.get(checkbox_key, False)):
+        if not _as_bool(dev.pluginProps.get(checkbox_key), False):
             return
         # Per-device override wins; empty/missing/whitespace falls back.
         title = (dev.pluginProps.get(title_key) or "").strip() or default_title
@@ -535,6 +672,37 @@ class Plugin(indigo.PluginBase):
     # State machine
     # --------------------------------------------------------
 
+    def _set_source_fault(self, dev, key, message, ui_message):
+        """Record a source fault, logging it once rather than every tick.
+
+        The same missing device used to log an ERROR every 20 seconds for every
+        appliance, forever. Log it on entry, repeat at most hourly so it is not
+        lost from a long log, and mark the device red so the fault is visible
+        in the Indigo device list without reading the log at all.
+        """
+        now   = time.time()
+        fault = self.source_faults.get(dev.id)
+        if fault is None or fault["key"] != key:
+            self.logger.error(message)
+            self.source_faults[dev.id] = {"key": key, "logged": now}
+            try:
+                dev.setErrorStateOnServer(ui_message)
+            except Exception:
+                self.logger.debug("could not set the device error state", exc_info=True)
+        elif (now - fault["logged"]) >= FAULT_REPEAT_SECONDS:
+            self.logger.error(message)
+            fault["logged"] = now
+
+    def _clear_source_fault(self, dev):
+        """Clear a latched source fault once the meter reads properly again."""
+        if self.source_faults.pop(dev.id, None) is None:
+            return
+        self.logger.info(f"[{dev.name}] power meter readable again")
+        try:
+            dev.setErrorStateOnServer(None)
+        except Exception:
+            self.logger.debug("could not clear the device error state", exc_info=True)
+
     def _tick_device(self, dev):
         props        = dev.pluginProps
         src_id       = _i(props.get("sourceDeviceId"), 0)
@@ -547,10 +715,27 @@ class Plugin(indigo.PluginBase):
         socket_delay = _i(props.get("socketReminderMinutes"), 30) * 60
 
         if src_id == 0 or src_id not in indigo.devices:
-            self.logger.error(f"[{dev.name}] source device not configured or missing")
+            self._set_source_fault(
+                dev, "missing-device",
+                f"[{dev.name}] the power meter it watches is not configured or no longer "
+                f"exists (device id {src_id}). Open this appliance's settings and pick one.",
+                "no source device")
             return
 
-        src   = indigo.devices[src_id]
+        src = indigo.devices[src_id]
+        if state_key not in src.states:
+            # Without this the read below silently returns 0.0 W, so a mistyped
+            # state name leaves the appliance idle forever with nothing logged.
+            keys = sorted(str(k) for k in src.states.keys() if not str(k).endswith(".ui"))
+            self._set_source_fault(
+                dev, f"missing-state:{state_key}",
+                f"[{dev.name}] meter '{src.name}' has no state called '{state_key}', so no "
+                f"power reading can be taken. Available states: "
+                f"{', '.join(keys[:12]) or '(none)'}",
+                "no power state")
+            return
+        self._clear_source_fault(dev)
+
         watts = _f(src.states.get(state_key), 0.0)
         now   = int(time.time())
         state = dev.states.get("cycleState", "idle")
@@ -573,13 +758,31 @@ class Plugin(indigo.PluginBase):
         # Default-True so devices that don't track online status (or
         # never go offline) are unaffected.
         # --------------------------------------------------------
-        src_online = src.states.get("deviceOnline", True)
-        if src_online is None:
-            src_online = True
+        # Coerced rather than tested for truthiness: the state comes from a
+        # third-party plugin and a string "false" would otherwise read as True.
+        src_online = _as_bool(src.states.get("deviceOnline", True), True)
 
         if not src_online:
             if state in _OFFLINE_OK_STATES:
                 if state != "off":
+                    # A cycle waiting out the end-of-cycle debounce is a real,
+                    # finished cycle — write its duration, peak and energy
+                    # before the appliance goes to "off", instead of losing it.
+                    if state == "finishing":
+                        low_since = _i(dev.states.get("lowSince"), 0) or now
+                        self.logger.info(
+                            f"[{dev.name}] the meter went offline while the cycle was "
+                            f"finishing — recording the cycle now, then marking the "
+                            f"appliance off. No door-ready alert will be sent."
+                        )
+                        self._enter_door_wait(dev, finished_at=low_since,
+                                              src=src, energy_key=energy_key)
+                    elif state == "doorWait" and not _as_bool(
+                            dev.states.get("doorNotified"), False):
+                        self.logger.info(
+                            f"[{dev.name}] the meter went offline before the door-ready "
+                            f"alert was due, so the cycle ended without one."
+                        )
                     self._enter_off(dev)
                 return
             # state == "running": ignore offline, keep ticking
@@ -635,10 +838,21 @@ class Plugin(indigo.PluginBase):
                 self._enter_running(dev, now, src, energy_key, watts)
                 return
             finished_at     = _i(dev.states.get("cycleFinishedAt"), 0)
-            elapsed         = now - finished_at if finished_at else 0
-            door_notified   = bool(dev.states.get("doorNotified", False))
-            socket_notified = bool(dev.states.get("socketNotified", False))
+            raw_elapsed     = now - finished_at if finished_at else 0
+            if raw_elapsed < 0:
+                # A clock step-back would otherwise hold the appliance in
+                # doorWait until real time caught up again.
+                self.logger.warning(
+                    f"[{dev.name}] the cycle appears to have finished "
+                    f"{abs(raw_elapsed)} s in the future — check the system clock."
+                )
+            elapsed         = max(0, raw_elapsed)
+            door_notified   = _as_bool(dev.states.get("doorNotified"), False)
+            socket_notified = _as_bool(dev.states.get("socketNotified"), False)
 
+            # The notified flag is set BEFORE notifying on purpose: if a channel
+            # blows up we must not re-notify every 20 seconds forever. _notify
+            # guards each channel internally, so a failure is logged, not lost.
             if not door_notified and elapsed >= door_delay:
                 dev.updateStateOnServer("doorNotified", value=True)
                 self._notify(dev, "doorReady")
@@ -768,15 +982,19 @@ class Plugin(indigo.PluginBase):
             kwh_now = _f(src.states.get(energy_key), -1.0)
             if kwh_now >= 0:
                 delta = kwh_now - kwh_start
-                # Counter rollover (e.g. energyKwhToday at midnight) would
-                # produce a negative delta — clamp to 0 and log if debug.
+                # Counter rollover (e.g. energyKwhToday resetting at midnight)
+                # gives a negative delta. The cycle's real energy cannot be
+                # recovered, so report it as unmeasured rather than as a
+                # confident 0.000 kWh — and say so out loud, because a silent
+                # zero looks exactly like a cycle that used nothing.
                 if delta < 0:
-                    if self.debug:
-                        self.logger.debug(
-                            f"[{dev.name}] energy counter rollover detected "
-                            f"({kwh_start:.3f} -> {kwh_now:.3f}); cycle kWh set to 0"
-                        )
-                    kwh_used, kwh_known = 0.0, True
+                    self.logger.warning(
+                        f"[{dev.name}] the meter's energy counter reset part-way through "
+                        f"this cycle ({kwh_start:.3f} -> {kwh_now:.3f} kWh), most likely "
+                        f"at midnight. The energy used cannot be worked out, so it is "
+                        f"not recorded and no cost is shown for this cycle."
+                    )
+                    kwh_used, kwh_known = 0.0, False
                 else:
                     checked = self._plausible_cycle_kwh(
                         dev, delta, peak_w, minutes, kwh_start, kwh_now,
@@ -814,6 +1032,12 @@ class Plugin(indigo.PluginBase):
                     f"sane band {MIN_RATE_P}-{MAX_RATE_P} p/kWh — cycle cost skipped. "
                     f"Check the variable holds pence per kWh, not pounds.", level="WARNING")
                 rate_p = 0.0
+        elif kwh_known and kwh_used > 0 and not rate_var:
+            # Otherwise a permanently blank cost column looks like a fault.
+            self.logger.info(
+                f"[{dev.name}] no rate variable set for this appliance, so the cycle "
+                f"cost is not worked out. Set one in the appliance's settings to see it."
+            )
         cost_gbp = kwh_used * rate_p / 100.0 if rate_p > 0 else 0.0
         dev.updateStateOnServer("lastCycleCostGbp", value=round(cost_gbp, 3),
                                 uiValue=(f"£{cost_gbp:.2f}" if cost_gbp > 0 else "—"))
@@ -845,8 +1069,13 @@ class Plugin(indigo.PluginBase):
         dev.updateStateOnServer("cycleKwhStart",  value=-1.0, uiValue="n/a")
 
     def _reset_to_idle(self, dev):
-        dev.updateStateOnServer("cycleState",   value="idle")
-        dev.updateStateOnServer("lowSince",     value=0)
+        dev.updateStateOnServer("cycleState",     value="idle")
+        dev.updateStateOnServer("lowSince",       value=0)
+        # Clear both alert latches too, so the next cycle starts from a known
+        # position however it was reached (socket reminder sent, cycle
+        # discarded as too short, or the meter simply coming back online).
+        dev.updateStateOnServer("doorNotified",   value=False)
+        dev.updateStateOnServer("socketNotified", value=False)
 
     def _enter_off(self, dev):
         """Source device offline → appliance physically powered off
@@ -898,6 +1127,12 @@ class Plugin(indigo.PluginBase):
     def menuToggleTimestamps(self):
         self.timestamp_enabled = not self.timestamp_enabled
         self.pluginPrefs["timestampEnabled"] = self.timestamp_enabled
+        # pluginPrefs only reach disk on a clean shutdown, so write them now —
+        # otherwise the setting is quietly lost if the server is killed.
+        try:
+            self.savePluginPrefs()
+        except Exception:
+            self.logger.debug("could not save plugin prefs", exc_info=True)
         if self._ts_filter:
             self._ts_filter.enabled = self.timestamp_enabled
         state = "ON" if self.timestamp_enabled else "OFF"

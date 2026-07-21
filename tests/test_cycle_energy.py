@@ -101,14 +101,19 @@ def test_absolute_cap_applies_when_peak_was_lost(plugin, appliance, meter):
 # Pre-existing behaviour that must not regress.
 # --------------------------------------------------------------------------
 
-def test_midnight_rollover_still_clamps_to_zero(plugin, appliance, meter):
-    """A negative delta is a counter reset, not an implausible reading."""
+def test_midnight_rollover_reports_energy_as_unmeasured(plugin, appliance, meter):
+    """A negative delta is a counter reset, not an implausible reading.
+
+    Changed in v1.8.0: the cycle's real energy cannot be recovered from a reset
+    counter, so it is reported as unmeasured rather than as a confident 0.000
+    kWh — and no cost is derived from it.
+    """
     states = _run_cycle(plugin, appliance, meter,
                         started_at=T0, finished_at=T0 + 3600,
                         peak_w=2000.0, kwh_start=26.9, kwh_now=0.18)
     assert states["lastCycleEnergyKwh"] == 0.0
-    # rollover is a KNOWN zero, so it is reported as a real figure, not "n/a"
-    assert states["lastCycleEnergyKwh.ui"] == "0.000 kWh"
+    assert states["lastCycleEnergyKwh.ui"] == "n/a"
+    assert states["lastCycleCostGbp"] == 0.0
 
 
 def test_no_energy_key_reports_unknown_not_zero(plugin, appliance, meter):

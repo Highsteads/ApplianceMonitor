@@ -41,6 +41,12 @@ class FakeDevice:
         self.states       = FakeStates(states or {})
         self.state_writes = []          # ordered audit of every write
         self.refresh_calls = 0
+        self.errorState   = None
+        self.error_writes = []          # ordered audit of setErrorStateOnServer
+
+    def setErrorStateOnServer(self, message):
+        self.errorState = message
+        self.error_writes.append(message)
 
     def updateStateOnServer(self, key, value=None, uiValue=None):
         self.states[key] = value
@@ -60,6 +66,18 @@ class FakeDevice:
                              ("cycleKwhStart", 0.0),
                              ("cycleStateVersion", 0)):
             self.states.setdefault(key, default)
+
+
+class FakeTrigger:
+    """Stands in for an indigo trigger held in self.event_triggers."""
+
+    def __init__(self, trigger_id, plugin_type_id, appliance_device="",
+                 name=None, raises=False):
+        self.id            = trigger_id
+        self.pluginTypeId  = plugin_type_id
+        self.pluginProps   = {"applianceDevice": appliance_device}
+        self.name          = name or f"Trigger {trigger_id}"
+        self.raises        = raises
 
 
 class FakeVariable:
@@ -96,6 +114,8 @@ class FakeTriggerNamespace:
         self.executed = []
 
     def execute(self, trigger):
+        if getattr(trigger, "raises", False):
+            raise RuntimeError("trigger no longer exists")
         self.executed.append(trigger)
 
 
@@ -126,8 +146,16 @@ class FakePluginBase:
         self.pluginVersion     = pluginVersion
         self.pluginPrefs       = pluginPrefs
         self.logger            = logging.getLogger("appliancemonitor.test")
+        # install_timestamp_filter is not idempotent, and this logger is a
+        # module-level singleton, so filters would otherwise pile up across
+        # tests and prefix each line once per test that had run before it.
+        self.logger.filters.clear()
         self.logger.addHandler(logging.NullHandler())
+        self.saved_prefs       = 0
         self.slept             = []
+
+    def savePluginPrefs(self):
+        self.saved_prefs += 1
 
     def sleep(self, seconds):
         self.slept.append(seconds)

@@ -88,6 +88,33 @@ Pushover toggles.
 
 ## Recent changes
 
+### v1.8.0 — fewer silent failures
+
+Six things that used to go wrong quietly now say so, or no longer go wrong at
+all:
+
+- If the plug meter dropped offline while the plugin was waiting out the
+  end-of-cycle debounce, the whole cycle was thrown away. The length, peak and
+  energy are now written first, then the appliance is marked off.
+- A power meter you had deleted logged the same error every twenty seconds,
+  forever. It is now logged once, repeated at most hourly, and the appliance
+  turns red in the device list until the meter is back.
+- A typo in the power state name behaved exactly like a meter reading zero
+  watts, so the appliance never ran and nothing was ever logged. Both state
+  names are now checked when you save the settings, and one that disappears
+  later raises the same one-off fault.
+- A cycle running past midnight, where the meter's daily kWh counter resets,
+  used to record a confident 0.000 kWh. It now warns and reports the energy as
+  unmeasured, so no cost is invented from it.
+- A trigger saved without an appliance chosen fired for every appliance in the
+  house. You can no longer save one, and any you already have will warn once
+  and fire for nothing until you pick an appliance.
+- One broken trigger no longer swallows the Pushover, the email and the rest of
+  that appliance's checks.
+
+Pushover user keys and email addresses are also masked in the log now. A
+Pushover key is a credential, and logs get pasted into forum posts.
+
 ### v1.7.1 — a test suite, and the two bugs it found
 
 The plugin now has an automated test suite (87 tests, no Indigo and no hardware
