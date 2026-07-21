@@ -7,7 +7,17 @@
 #              events: cycleStarted, doorReady, socketReminder.
 # Author:      CliveS & Claude Opus 4.8
 # Date:        21-07-2026
-# Version:     1.7.0
+# Version:     1.7.1
+#
+# v1.7.1 (21-07-2026): Deep-review batch 2 — first test suite (87 tests,
+# tests/ at the repo root, no Indigo or hardware needed). Writing it found
+# two real defects in v1.7.0, both fixed here:
+# * validateDeviceConfigUi refused a device whose new optional minimums were
+#   absent, which is every device upgraded from an earlier version — it
+#   blocked saving the config dialog. Missing/blank now reads as 0 (off).
+# * The cycle-energy ceiling was derived from a duration of 0 when the start
+#   time was UNKNOWN, collapsing the ceiling and rejecting real cycles. An
+#   unknown duration now falls back to the absolute cap.
 #
 # v1.7.0 (21-07-2026): TRUST NOTHING FROM THE METER. Deep-review batch 1.
 # * Cycle energy is now bounded by physics. A cycle cannot use more than its
@@ -128,7 +138,7 @@ except ImportError:
 # ============================================================
 
 PLUGIN_ID       = "com.clives.indigoplugin.appliancemonitor"
-PLUGIN_VERSION  = "1.7.0"
+PLUGIN_VERSION  = "1.7.1"
 PUSHOVER_PLUGIN = "io.thechad.indigoplugin.pushover"
 TICK_SECONDS    = 20
 
@@ -347,9 +357,13 @@ class Plugin(indigo.PluginBase):
                 "Must be greater than the door-ready delay, otherwise both "
                 "notifications fire together."
             )
-        if _i(valuesDict.get("minCycleMinutes"), -1) < 0:
+        # Both minimums are optional and default to 0 (off). Absent or blank is
+        # the normal case on a device created before v1.7.0, so it must validate
+        # as "off" — treating a missing field as invalid would block every
+        # existing user from saving their config after upgrading.
+        if _i(valuesDict.get("minCycleMinutes") or 0, -1) < 0:
             errors["minCycleMinutes"] = "Must be zero or a positive integer (minutes); 0 disables the check."
-        if _f(valuesDict.get("minCyclePeakWatts"), -1) < 0:
+        if _f(valuesDict.get("minCyclePeakWatts") or 0, -1) < 0:
             errors["minCyclePeakWatts"] = "Must be zero or a positive number of watts; 0 disables the check."
         if errors:
             return (False, valuesDict, errors)
@@ -689,7 +703,8 @@ class Plugin(indigo.PluginBase):
         if prev != "running":
             self._notify(dev, "cycleStarted")
 
-    def _plausible_cycle_kwh(self, dev, kwh_used, peak_w, minutes, kwh_start, kwh_now):
+    def _plausible_cycle_kwh(self, dev, kwh_used, peak_w, minutes, kwh_start, kwh_now,
+                             duration_known=True):
         """Reject a physically impossible cycle-energy delta.
 
         A cycle cannot consume more than its peak draw sustained for its whole
@@ -700,8 +715,13 @@ class Plugin(indigo.PluginBase):
 
         Returns the accepted kWh, or None when the delta is not believable.
         """
+        # The duration-based ceiling is only meaningful when the duration is
+        # actually known. An UNKNOWN duration reads as 0 minutes, which is not
+        # the same as a short cycle — trusting it there would collapse the
+        # ceiling and reject perfectly real readings. Fall back to the absolute
+        # cap instead.
         ceiling = MAX_CYCLE_KWH
-        if peak_w > 0:
+        if peak_w > 0 and duration_known:
             physical = (peak_w / 1000.0) * (max(minutes, 1) / 60.0) * KWH_PLAUSIBILITY_SLACK
             # Keep a small floor so a brief cycle with a modest sampled peak
             # cannot reject a perfectly real reading.
@@ -715,12 +735,14 @@ class Plugin(indigo.PluginBase):
         return kwh_used
 
     def _enter_door_wait(self, dev, finished_at, src=None, energy_key=""):
-        started_at = _i(dev.states.get("cycleStartedAt"), 0)
-        minutes    = (finished_at - started_at) // 60 if started_at else 0
+        started_at     = _i(dev.states.get("cycleStartedAt"), 0)
+        duration_known = started_at > 0
+        minutes        = (finished_at - started_at) // 60 if duration_known else 0
         if minutes < 0:
             # A clock step-back between cycle start and end would otherwise
             # report a negative duration and poison the plausibility ceiling.
-            minutes = 0
+            # Treat the duration as unknown rather than as zero.
+            minutes, duration_known = 0, False
 
         # Finalise cycle metrics: peak watts and energy used.
         rt        = self.runtime.get(dev.id, {"peak": 0.0, "kwh_start": None})
@@ -757,7 +779,8 @@ class Plugin(indigo.PluginBase):
                     kwh_used, kwh_known = 0.0, True
                 else:
                     checked = self._plausible_cycle_kwh(
-                        dev, delta, peak_w, minutes, kwh_start, kwh_now)
+                        dev, delta, peak_w, minutes, kwh_start, kwh_now,
+                        duration_known=duration_known)
                     if checked is None:
                         kwh_used, kwh_known = 0.0, False
                     else:

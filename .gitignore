@@ -1,15 +1,15 @@
-IndigoSecrets.py
+
+# Test runner artefacts
+**/CLAUDE.md
+**/Contents/Packages/
 **/IndigoSecrets.py
-secrets.py
 **/secrets.py
-__pycache__/
+*.indigoPlugin.zip
 *.pyc
 *.pyo
 .DS_Store
-CLAUDE.md
-**/CLAUDE.md
-**/Contents/Packages/
-*.indigoPlugin.zip
-
-# Test runner artefacts
 .pytest_cache/
+CLAUDE.md
+IndigoSecrets.py
+__pycache__/
+secrets.py

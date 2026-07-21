@@ -88,6 +88,19 @@ Pushover toggles.
 
 ## Recent changes
 
+### v1.7.1 — a test suite, and the two bugs it found
+
+The plugin now has an automated test suite (87 tests, no Indigo and no hardware
+needed). Writing it turned up two faults in v1.7.0 straight away, both fixed
+here:
+
+- Saving an appliance's settings was refused on any device created before
+  v1.7.0, because the two new optional minimums were missing rather than zero.
+- The new energy check used a cycle length of zero when the start time was not
+  known, which made the limit far too tight and could reject a real cycle.
+
+If you are on v1.7.0, upgrade.
+
 ### v1.7.0 — not believing everything the meter says
 
 A power meter can misreport. One here spent an hour publishing a lifetime
