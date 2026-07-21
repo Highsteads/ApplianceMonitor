@@ -7,7 +7,20 @@
 #              events: cycleStarted, doorReady, socketReminder.
 # Author:      CliveS & Claude Opus 4.8
 # Date:        21-07-2026
-# Version:     1.8.1
+# Version:     1.8.2
+#
+# v1.8.2 (21-07-2026): shared plugin_utils.py refreshed to v1.3 — the
+# estate-wide propagation of the four Appliance Monitor deep-review fixes.
+# * install_timestamp_filter() is idempotent — a second call used to stack a
+#   second filter, so every log line came out with two timestamps.
+# * `import indigo` is soft, so the module imports outside the Indigo host and
+#   can be exercised by offline tests.
+# * A malformed log call keeps its arguments in the log instead of dropping
+#   them, so a %-placeholder mismatch is visible.
+# * New shared as_bool() — a pref re-serialised as the string "false" is
+#   truthy, which is exactly the wrong answer.
+# The shared copy also picked up the Device Activity Monitor docstring
+# corrections, so this bundle's copy changed too.
 #
 # v1.8.1 (21-07-2026): Deep-review batch 3 — the lows.
 # * plugin_utils bumped to 1.3: install_timestamp_filter() is idempotent (a
@@ -173,7 +186,7 @@ except ImportError:
 # ============================================================
 
 PLUGIN_ID       = "com.clives.indigoplugin.appliancemonitor"
-PLUGIN_VERSION  = "1.8.1"
+PLUGIN_VERSION  = "1.8.2"
 PUSHOVER_PLUGIN = "io.thechad.indigoplugin.pushover"
 TICK_SECONDS    = 20
 

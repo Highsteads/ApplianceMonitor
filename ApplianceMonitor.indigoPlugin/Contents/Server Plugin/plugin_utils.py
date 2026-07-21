@@ -2,14 +2,13 @@
 # -*- coding: utf-8 -*-
 # Filename:    plugin_utils.py
 # Description: Shared utilities for all Indigo plugins (CliveS / Highsteads)
-#              Bundled inside every plugin at Contents/Server Plugin/.
+#              Bundled in Contents/Server Plugin/ and imported via os.getcwd()
 # Author:      CliveS & Claude Opus 4.8
 # Date:        21-07-2026
 # Version:     1.3
 #
-# v1.3 (21-07-2026): Three fixes found by the Appliance Monitor deep review.
-# NOTE: this file is SHARED across every CliveS plugin — the same three fixes
-# need propagating to the other bundles.
+# v1.3 (21-07-2026): Four fixes found by the Appliance Monitor deep review,
+# propagated to every CliveS plugin bundle on the same day.
 # * install_timestamp_filter() is now idempotent. Calling it twice used to add
 #   a second filter, and every log line came out with two timestamps.
 # * `import indigo` is now soft, so the module can be imported outside the
@@ -18,6 +17,9 @@
 #   %-placeholder mismatch is visible in the log rather than silently dropped.
 # * New as_bool() helper — a pluginPrefs value re-serialised as the string
 #   "false" is truthy, which is exactly the wrong answer.
+# Also folded in the Device Activity Monitor docstring corrections: the banner
+# is called from MENU callbacks, never from __init__/startup, and the import
+# pattern is the bundle-local os.getcwd() form.
 #
 # v1.2 (23-05-2026): Added install_timestamp_filter() — a logging.Filter that
 # prepends [HH:MM:SS.mmm] to every self.logger record. Toggle at runtime via
@@ -50,11 +52,32 @@ def log_startup_banner(plugin_id, display_name, version, extras=None):
         extras          (list) Optional list of (label, value) tuples for plugin-specific
                                extra lines appended after the standard block.
                                e.g. [("Compatible Hardware:", "Ecowitt / Fine Offset")]
+
+    Called from MENU callbacks only (showPluginInfo, Test Connection etc.) —
+    never from __init__/startup (trimmed-boot convention, Jay 25-May-2026).
+
+    Import at module level in plugin.py (cwd is Server Plugin/ at runtime):
+        import os as _os
+        import sys as _sys
+        _sys.path.insert(0, _os.getcwd())
+        try:
+            from plugin_utils import log_startup_banner
+        except ImportError:
+            log_startup_banner = None
+
+    Usage in showPluginInfo():
+        if log_startup_banner:
+            log_startup_banner(self.pluginId, self.pluginDisplayName,
+                               self.pluginVersion)
+        else:
+            indigo.server.log(f"{self.pluginDisplayName} v{self.pluginVersion}")
     """
     if indigo is None:
         return
     title = f"Starting {display_name} Plugin"
     width = 60
+    # Centre the title within the bar; if title is longer than the bar (very
+    # long plugin names) just emit the title on its own line.
     if len(title) + 4 <= width:
         pad   = (width - len(title) - 2) // 2
         mid   = f"{'=' * pad} {title} {'=' * (width - pad - len(title) - 2)}"
@@ -163,7 +186,11 @@ def install_timestamp_filter(plugin, enabled=True):
         return None
     # Idempotent: a second call used to add a second filter, and every line
     # then came out with two timestamps.
-    for existing in logger.filters:
+    # NB: attached at LOGGER level, so records from child loggers
+    # (logger.getChild()) bypass it — fine for CliveS plugins, which log on
+    # self.logger directly. SigenEnergyManager needs module-logger records
+    # stamped too and carries a handler-walking variant of this function.
+    for existing in getattr(logger, "filters", []):
         if isinstance(existing, MillisecondTimestampFilter):
             existing.enabled = enabled
             return existing
