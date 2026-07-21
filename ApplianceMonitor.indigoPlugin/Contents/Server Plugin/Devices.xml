@@ -71,7 +71,7 @@
 
             <Field id="doorDelayMinutes" type="textfield" defaultValue="2">
                 <Label>Door-ready delay (min):</Label>
-                <Description>Fires the doorReady event this long after cycle end. Set to the appliance's door-lock release delay.</Description>
+                <Description>Fires the doorReady event this long after the power actually stopped - NOT after the debounce window above. Set it to the appliance's door-lock release delay. If it is shorter than the debounce, the alert goes out on the same tick the cycle is declared ended.</Description>
             </Field>
 
             <Field id="socketReminderMinutes" type="textfield" defaultValue="30">

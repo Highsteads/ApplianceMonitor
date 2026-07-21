@@ -146,9 +146,9 @@ class FakePluginBase:
         self.pluginVersion     = pluginVersion
         self.pluginPrefs       = pluginPrefs
         self.logger            = logging.getLogger("appliancemonitor.test")
-        # install_timestamp_filter is not idempotent, and this logger is a
-        # module-level singleton, so filters would otherwise pile up across
-        # tests and prefix each line once per test that had run before it.
+        # This logger is a module-level singleton shared by every test, so
+        # start each one from a clean slate. install_timestamp_filter is
+        # idempotent as of plugin_utils 1.3, but the handler list is not.
         self.logger.filters.clear()
         self.logger.addHandler(logging.NullHandler())
         self.saved_prefs       = 0

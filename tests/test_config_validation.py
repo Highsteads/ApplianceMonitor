@@ -221,3 +221,30 @@ def test_the_timestamp_toggle_writes_the_pref_to_disk(plugin):
     plugin.menuToggleTimestamps()
     assert plugin.pluginPrefs["timestampEnabled"] is not before
     assert plugin.saved_prefs == 1
+
+
+# --------------------------------------------------------------------------
+# v1.8.1 — a malformed email address is refused at save time
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("addr", ["notanaddress", "@example.com", "jane@"])
+def test_a_malformed_email_address_is_refused(plugin, appliance, addr):
+    ok, _, errors = validate(plugin, emailRecipients=addr)
+    assert not ok
+    assert "emailRecipients" in errors
+
+
+def test_several_good_addresses_are_accepted(plugin, appliance):
+    ok, *_ = validate(plugin, emailRecipients="jane@example.com, sam@example.com")
+    assert ok
+
+
+def test_one_bad_address_among_good_ones_is_named(plugin, appliance):
+    ok, _, errors = validate(plugin, emailRecipients="jane@example.com, oops")
+    assert not ok
+    assert "oops" in errors["emailRecipients"]
+
+
+def test_a_blank_recipient_list_is_fine(plugin, appliance):
+    ok, *_ = validate(plugin, emailRecipients="")
+    assert ok

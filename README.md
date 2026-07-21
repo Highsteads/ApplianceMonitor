@@ -88,6 +88,16 @@ Pushover toggles.
 
 ## Recent changes
 
+### v1.8.1 — tidying up after the review
+
+- Turning log timestamps on or off twice in one session used to give every line
+  two timestamps. It no longer does, and the setting is now written to disk as
+  soon as you change it rather than only on a clean shutdown.
+- A mistyped email address is refused when you save an appliance's settings,
+  instead of failing on every notification from then on.
+- The door-ready delay runs from the moment the power actually stopped, not
+  from the end of the debounce window. The settings dialog now says so.
+
 ### v1.8.0 — fewer silent failures
 
 Six things that used to go wrong quietly now say so, or no longer go wrong at

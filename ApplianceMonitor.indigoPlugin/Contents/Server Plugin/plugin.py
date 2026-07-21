@@ -7,7 +7,18 @@
 #              events: cycleStarted, doorReady, socketReminder.
 # Author:      CliveS & Claude Opus 4.8
 # Date:        21-07-2026
-# Version:     1.8.0
+# Version:     1.8.1
+#
+# v1.8.1 (21-07-2026): Deep-review batch 3 — the lows.
+# * plugin_utils bumped to 1.3: install_timestamp_filter() is idempotent (a
+#   second call used to double-stamp every log line), `import indigo` is soft
+#   so the module can be imported offline, and a malformed log call keeps its
+#   arguments in the log instead of losing them. That file is SHARED across
+#   every CliveS plugin, so the same three fixes need propagating.
+# * A malformed email recipient is refused when the settings are saved rather
+#   than failing once per notification forever.
+# * The door-ready delay is measured from the moment power actually stopped,
+#   not from the end of the debounce window. The dialog now says so.
 #
 # v1.8.0 (21-07-2026): Deep-review batch 3 — the mediums.
 # * A cycle is no longer thrown away when the meter goes offline while the
@@ -162,7 +173,7 @@ except ImportError:
 # ============================================================
 
 PLUGIN_ID       = "com.clives.indigoplugin.appliancemonitor"
-PLUGIN_VERSION  = "1.8.0"
+PLUGIN_VERSION  = "1.8.1"
 PUSHOVER_PLUGIN = "io.thechad.indigoplugin.pushover"
 TICK_SECONDS    = 20
 
@@ -292,7 +303,7 @@ class Plugin(indigo.PluginBase):
                                     # latched source faults, so a missing meter is
                                     # logged once rather than every 20 seconds
         self.bad_triggers    = set()   # trigger ids already warned about
-        self.timestamp_enabled = bool(pluginPrefs.get("timestampEnabled", True))
+        self.timestamp_enabled = _as_bool(pluginPrefs.get("timestampEnabled"), True)
 
         if install_timestamp_filter:
             self._ts_filter = install_timestamp_filter(self, enabled=self.timestamp_enabled)
@@ -431,6 +442,19 @@ class Plugin(indigo.PluginBase):
         rate_var = (valuesDict.get("rateVariableName") or "").strip()
         if rate_var and rate_var not in indigo.variables:
             errors["rateVariableName"] = "No Indigo variable with that name."
+        # A malformed address would otherwise fail once per notification, for
+        # ever, with nothing but an exception in the log to show for it.
+        bad_addrs = [
+            addr.strip()
+            for addr in (valuesDict.get("emailRecipients") or "").split(",")
+            if addr.strip() and ("@" not in addr or addr.strip().startswith("@")
+                                 or addr.strip().endswith("@"))
+        ]
+        if bad_addrs:
+            errors["emailRecipients"] = (
+                f"Not a valid email address: {', '.join(bad_addrs)}. Separate several "
+                f"addresses with commas."
+            )
         run_w  = _f(valuesDict.get("runThresholdWatts"), -1)
         idle_w = _f(valuesDict.get("idleThresholdWatts"), -1)
         if run_w <= 0:
