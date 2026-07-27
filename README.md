@@ -88,11 +88,17 @@ Pushover toggles.
 
 ## Recent changes
 
+### v1.8.2 — housekeeping
+
+The shared utility file every CliveS plugin carries was refreshed to the copy
+that went out across the whole fleet, so this bundle now matches the rest. The
+fixes in it started here in v1.8.1 and were already present, so nothing about
+how the plugin behaves has changed.
+
 ### v1.8.1 — tidying up after the review
 
 - Turning log timestamps on or off twice in one session used to give every line
-  two timestamps. It no longer does, and the setting is now written to disk as
-  soon as you change it rather than only on a clean shutdown.
+  two timestamps. It no longer does.
 - A mistyped email address is refused when you save an appliance's settings,
   instead of failing on every notification from then on.
 - The door-ready delay runs from the moment the power actually stopped, not
@@ -123,7 +129,9 @@ all:
   that appliance's checks.
 
 Pushover user keys and email addresses are also masked in the log now. A
-Pushover key is a credential, and logs get pasted into forum posts.
+Pushover key is a credential, and logs get pasted into forum posts. The
+timestamp setting is written to disk the moment you change it as well, rather
+than only on a clean shutdown.
 
 ### v1.7.1 — a test suite, and the two bugs it found
 
@@ -181,7 +189,7 @@ Adjust the thresholds for your appliance by watching the Shelly's
 
 ## Per-cycle metrics (v1.2+)
 
-At the end of every cycle the plugin writes two extra device states so you
+At the end of every cycle the plugin writes four extra device states so you
 can use them on control pages, in triggers, or for solar/energy automations:
 
 | State | What it captures |
@@ -239,11 +247,23 @@ channel sits dormant, ready to switch back on if Pushover ever lets you down.
 
 ## Requirements
 
-- Indigo 2025.2 or later (Python 3.13)
+- Indigo 2022.1 or later. The plugin declares server API version 3.0, and the
+  API floor is what Indigo's plugin loader actually checks. Developed and
+  tested on Indigo 2025.2 / Python 3.13.
 - The Email+ plugin configured with an SMTP server (only if you use the
   Email recipients field)
 - A device that exposes a watts state — ShellyDirect, Shelly Gen1,
   Z-Wave power meters, etc.
+
+## Plugin menu
+
+**Plugins → Appliance Monitor →**
+
+| Menu item | What it does |
+|-----------|--------------|
+| **Dump Appliance State (event log)** | Log one line per appliance showing where it is in the cycle — current watts, when it started and finished, how long the last cycle ran, its peak and its kWh, and whether the door-ready and socket-reminder alerts have gone out. The quickest way to see what the plugin thinks is happening. |
+| **Toggle Timestamps in Log (on/off)** | Turn the millisecond log prefix on or off. |
+| **Show Plugin Info** | Log the full plugin and environment banner for a support post. |
 
 ## Logging
 
