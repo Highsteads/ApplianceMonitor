@@ -5,9 +5,44 @@
 #              by a power-monitoring device (e.g. Shelly). Sends Pushover
 #              notifications directly and also fires three Indigo custom
 #              events: cycleStarted, doorReady, socketReminder.
-# Author:      CliveS & Claude Opus 4.8
-# Date:        21-07-2026
-# Version:     1.8.2
+# Author:      CliveS & Claude Opus 5
+# Date:        27-07-2026
+# Version:     1.9.0
+#
+# v1.9.0 (27-07-2026): the four things the deep review deliberately left as
+# features rather than defects. Every one is off by default, so an existing
+# appliance behaves exactly as it did until someone opts in.
+#
+# * STUCK-CYCLE WATCHDOG. A meter pinned above the run threshold leaves the
+#   appliance reading "running" for ever: the cycle never ends, no door-ready
+#   alert ever follows, and nothing looks wrong. New maxCycleMinutes fires the
+#   new cycleOverrun event ONCE, and warns naming the elapsed time. It does NOT
+#   end the cycle — a cycle that never really finished has no honest duration,
+#   peak or energy, and inventing one would put a fabricated figure into the
+#   history and the cost. Checked in "finishing" too, because a meter
+#   oscillating around the idle threshold flips between the two for ever
+#   without either ageing out.
+# * SOURCE FRESHNESS. A meter can stop reporting without ever saying it is
+#   offline, and the appliance then looks idle for ever. New sourceStaleMinutes
+#   raises the existing latched fault instead. It prefers lastSuccessfulComm
+#   and falls back to lastChanged, because a meter that writes only a CHANGED
+#   value legitimately looks silent whenever the appliance is idle — which is
+#   also why it ships off.
+# * CONFIGURABLE ONLINE STATE. The offline check was hardcoded to
+#   ShellyDirect's `deviceOnline`, so for any other meter it silently never
+#   fired. New sourceOnlineStateKey; an absent or blank key means "no opinion"
+#   and the appliance counts as online, which is the old behaviour exactly. A
+#   key the meter does not have is now refused when the dialog is saved.
+# * TWO ACTIONS. Reset Appliance to Idle gets you out of a stuck cycle without
+#   editing states, recording nothing for the abandoned cycle. Send Test
+#   Notification proves Pushover and email work without waiting for a wash, and
+#   reports how many recipients each channel actually reached — _send_pushover
+#   and _send_email now return a delivered count rather than nothing.
+#
+# Tests 160 -> 218, including the areas the review left uncovered: the menu
+# handlers and the Pushover recipient de-dupe. NOT EXERCISED AGAINST REAL
+# HARDWARE — both source plugs have been off the network since 24-07-2026, so
+# every new path here rests on the contract tests alone.
 #
 # v1.8.2 (21-07-2026): shared plugin_utils.py refreshed to v1.3 — the
 # estate-wide propagation of the four Appliance Monitor deep-review fixes.
@@ -186,7 +221,7 @@ except ImportError:
 # ============================================================
 
 PLUGIN_ID       = "com.clives.indigoplugin.appliancemonitor"
-PLUGIN_VERSION  = "1.8.2"
+PLUGIN_VERSION  = "1.9.0"
 PUSHOVER_PLUGIN = "io.thechad.indigoplugin.pushover"
 TICK_SECONDS    = 20
 
@@ -272,6 +307,27 @@ def _as_bool(value, default=False):
     if isinstance(value, (int, float)):
         return bool(value)
     return str(value).strip().lower() in ("true", "1", "yes", "on")
+
+
+def _source_silence_seconds(src, now=None):
+    """How long the meter has been quiet, in seconds, or None if unknowable.
+
+    Prefers `lastSuccessfulComm`, which the owning plugin bumps on every
+    successful read whether or not the value changed. `lastChanged` only moves
+    when a state actually changes, so on a meter that writes only on change it
+    reads as silence whenever the appliance is genuinely idle — which is why it
+    is the fallback and not the first choice.
+
+    Returns None when neither timestamp exists, so an unknown age can never be
+    mistaken for a fault.
+    """
+    stamp = getattr(src, "lastSuccessfulComm", None) or getattr(src, "lastChanged", None)
+    if stamp is None:
+        return None
+    try:
+        return max(0.0, ((now or datetime.now()) - stamp).total_seconds())
+    except (TypeError, ValueError):
+        return None
 
 
 def _mask_key(value):
@@ -362,7 +418,7 @@ class Plugin(indigo.PluginBase):
                     "lastCycleCostGbp", "lastCycleRateP"):
             if dev.states.get(key) in (None, ""):
                 dev.updateStateOnServer(key, value=0.0, uiValue="0.0")
-        for key in ("doorNotified", "socketNotified"):
+        for key in ("doorNotified", "socketNotified", "overrunNotified"):
             if dev.states.get(key) is None:
                 dev.updateStateOnServer(key, value=False)
         self.devices[dev.id] = dev
@@ -499,6 +555,31 @@ class Plugin(indigo.PluginBase):
             errors["minCycleMinutes"] = "Must be zero or a positive integer (minutes); 0 disables the check."
         if _f(valuesDict.get("minCyclePeakWatts") or 0, -1) < 0:
             errors["minCyclePeakWatts"] = "Must be zero or a positive number of watts; 0 disables the check."
+        # Also optional and also absent on every device created before v1.9.0,
+        # so "missing" has to validate as off for exactly the same reason.
+        max_cycle = _i(valuesDict.get("maxCycleMinutes") or 0, -1)
+        if max_cycle < 0:
+            errors["maxCycleMinutes"] = "Must be zero or a positive integer (minutes); 0 disables the check."
+        if _i(valuesDict.get("sourceStaleMinutes") or 0, -1) < 0:
+            errors["sourceStaleMinutes"] = "Must be zero or a positive integer (minutes); 0 disables the check."
+        # A limit shorter than the debounce would warn about every ordinary
+        # cycle, which trains people to ignore the warning.
+        debounce_min = _i(valuesDict.get("debounceMinutes"), 0)
+        if max_cycle > 0 and max_cycle <= debounce_min:
+            errors["maxCycleMinutes"] = (
+                f"Must be longer than the {debounce_min} min end-of-cycle debounce, "
+                f"otherwise every normal cycle looks like an overrun."
+            )
+        # The online state key is free text like the others. Blank switches the
+        # check off, which is legitimate; a name the meter does not have is not
+        # an error either, but it is worth saying so rather than silently never
+        # firing — the exact trap this release fixes.
+        online_key = (valuesDict.get("sourceOnlineStateKey") or "").strip()
+        if online_key and src_id in indigo.devices and online_key not in indigo.devices[src_id].states:
+            errors["sourceOnlineStateKey"] = (
+                f"'{indigo.devices[src_id].name}' has no state called '{online_key}', so the "
+                f"offline check would never fire. Clear the field to switch the check off."
+            )
         if errors:
             return (False, valuesDict, errors)
         return (True, valuesDict)
@@ -565,13 +646,18 @@ class Plugin(indigo.PluginBase):
             self.logger.debug(f"[{dev.name}] event {event_id} -> {fired} trigger(s)")
 
     def _send_pushover(self, dev, title, body):
-        """Send a Pushover notification using per-device settings."""
+        """Send a Pushover notification using per-device settings.
+
+        Returns the number of recipients it actually reached, so the test-message
+        action can report what happened rather than claiming success. The
+        notification path ignores it — a failure there is already logged.
+        """
         pushover = indigo.server.getPlugin(PUSHOVER_PLUGIN)
         if not pushover or not pushover.isEnabled():
             self.logger.warning(
                 f"[{dev.name}] Pushover plugin not enabled — message not sent: {body}"
             )
-            return
+            return 0
         props = dev.pluginProps
         base = {
             "msgTitle":    title,
@@ -595,6 +681,7 @@ class Plugin(indigo.PluginBase):
         for r in [primary] + extras:
             if r not in recipients:
                 recipients.append(r)
+        delivered = 0
         for user in recipients:
             # Masked — a Pushover user key is a credential, and event logs get
             # pasted whole into forum support posts.
@@ -604,13 +691,17 @@ class Plugin(indigo.PluginBase):
                 msg["msgUser"] = user
             try:
                 pushover.executeAction("send", props=msg)
+                delivered += 1
                 if self.debug:
                     self.logger.debug(f"[{dev.name}] Pushover sent to {who}: {title} / {body}")
             except Exception:
                 self.logger.exception(f"[{dev.name}] Pushover send to {who} failed")
+        return delivered
 
     def _send_email(self, dev, subject, body):
         """Email the same notification to any per-device recipients.
+
+        Returns the number of addresses actually reached (see _send_pushover).
 
         Uses indigo.server.sendEmailTo() (NOT executeAction) — it bypasses
         the cross-plugin prop-serialisation bug and picks the first Email+
@@ -622,23 +713,26 @@ class Plugin(indigo.PluginBase):
         dormant fallback while Pushover does the live notifying.
         """
         if not _as_bool(dev.pluginProps.get("emailEnabled", True), True):
-            return
+            return 0
         recipients = [
             addr.strip()
             for addr in (dev.pluginProps.get("emailRecipients") or "").split(",")
             if addr.strip()
         ]
         if not recipients:
-            return
+            return 0
+        delivered = 0
         for addr in recipients:
             try:
                 indigo.server.sendEmailTo(addr, subject=subject, body=body)
+                delivered += 1
                 if self.debug:
                     self.logger.debug(
                         f"[{dev.name}] email sent to {_mask_email(addr)}: {subject}")
             except Exception:
                 self.logger.exception(
                     f"[{dev.name}] email send to {_mask_email(addr)} failed")
+        return delivered
 
     # Per-event notification config:
     #   checkbox_key   — pluginProps key that gates sending
@@ -750,6 +844,8 @@ class Plugin(indigo.PluginBase):
         debounce_s   = _i(props.get("debounceMinutes"), 3) * 60
         door_delay   = _i(props.get("doorDelayMinutes"), 2) * 60
         socket_delay = _i(props.get("socketReminderMinutes"), 30) * 60
+        max_cycle_s  = _i(props.get("maxCycleMinutes"), 0) * 60
+        stale_s      = _i(props.get("sourceStaleMinutes"), 0) * 60
 
         if src_id == 0 or src_id not in indigo.devices:
             self._set_source_fault(
@@ -771,6 +867,23 @@ class Plugin(indigo.PluginBase):
                 f"{', '.join(keys[:12]) or '(none)'}",
                 "no power state")
             return
+
+        # A meter can stop reporting without ever saying it is offline, and the
+        # appliance then sits there looking idle for ever. Off by default,
+        # because a meter that only writes a CHANGED value legitimately looks
+        # silent whenever the appliance is idle.
+        if stale_s > 0:
+            silence = _source_silence_seconds(src)
+            if silence is not None and silence >= stale_s:
+                self._set_source_fault(
+                    dev, "stale-source",
+                    f"[{dev.name}] meter '{src.name}' has not reported for "
+                    f"{silence / 60:.0f} min (limit {stale_s // 60} min), so its readings "
+                    f"cannot be trusted. The appliance is left as it is until the meter "
+                    f"reports again.",
+                    "meter silent")
+                return
+
         self._clear_source_fault(dev)
 
         watts = _f(src.states.get(state_key), 0.0)
@@ -795,9 +908,20 @@ class Plugin(indigo.PluginBase):
         # Default-True so devices that don't track online status (or
         # never go offline) are unaffected.
         # --------------------------------------------------------
+        # The state name is configurable (v1.9.0) — it was hardcoded to
+        # ShellyDirect's `deviceOnline`, so for a meter that calls it anything
+        # else the offline path simply never fired. A key that is absent from
+        # the meter, or blanked in the settings, means "no opinion" and the
+        # appliance is treated as online, which is the old default-True
+        # behaviour and keeps every existing device working unchanged.
+        #
         # Coerced rather than tested for truthiness: the state comes from a
         # third-party plugin and a string "false" would otherwise read as True.
-        src_online = _as_bool(src.states.get("deviceOnline", True), True)
+        online_key = (props.get("sourceOnlineStateKey", "deviceOnline") or "").strip()
+        if not online_key or online_key not in src.states:
+            src_online = True
+        else:
+            src_online = _as_bool(src.states.get(online_key, True), True)
 
         if not src_online:
             if state in _OFFLINE_OK_STATES:
@@ -850,6 +974,7 @@ class Plugin(indigo.PluginBase):
 
         elif state == "running":
             self._track_peak(dev, watts)
+            self._check_cycle_overrun(dev, now, max_cycle_s)
             if watts < idle_w:
                 dev.updateStateOnServer("lowSince", value=now)
                 dev.updateStateOnServer("cycleState", value="finishing")
@@ -858,6 +983,10 @@ class Plugin(indigo.PluginBase):
 
         elif state == "finishing":
             self._track_peak(dev, watts)
+            # Also checked here: a meter oscillating around the idle threshold
+            # flips running/finishing for ever without either state ageing out,
+            # and that is just as stuck as one pinned above the run threshold.
+            self._check_cycle_overrun(dev, now, max_cycle_s)
             if watts >= run_w:
                 dev.updateStateOnServer("lowSince", value=0)
                 dev.updateStateOnServer("cycleState", value="running")
@@ -906,6 +1035,38 @@ class Plugin(indigo.PluginBase):
     # Transitions
     # --------------------------------------------------------
 
+    def _check_cycle_overrun(self, dev, now, max_cycle_s):
+        """Warn once when a cycle has run longer than the appliance allows.
+
+        A meter stuck above the run threshold leaves the appliance reading
+        "running" for ever, so the cycle never ends and no door-ready alert is
+        ever sent — silently, because nothing is obviously wrong.
+
+        It deliberately does NOT end the cycle. A cycle that never really
+        finished has no honest duration, peak or energy to record, and inventing
+        one would put a fabricated figure into the history and the cost. It
+        warns, fires cycleOverrun, and leaves the decision to a human — the
+        Reset Appliance to Idle action is the way out.
+        """
+        if max_cycle_s <= 0:
+            return
+        if _as_bool(dev.states.get("overrunNotified"), False):
+            return
+        started = _i(dev.states.get("cycleStartedAt"), 0)
+        if not started:
+            return                       # unknown start — nothing to measure
+        elapsed = now - started
+        if elapsed < max_cycle_s:
+            return
+        dev.updateStateOnServer("overrunNotified", value=True)
+        self.logger.warning(
+            f"[{dev.name}] the cycle has been running {elapsed // 60} min, longer than "
+            f"the {max_cycle_s // 60} min limit. The meter is probably stuck above the "
+            f"run threshold, so the cycle will not end on its own and no door-ready "
+            f"alert will follow. Use the Reset Appliance to Idle action to clear it."
+        )
+        self._fire_event(dev, "cycleOverrun")
+
     def _track_peak(self, dev, watts):
         """Update the in-cycle peak-watts tracker.
 
@@ -950,6 +1111,10 @@ class Plugin(indigo.PluginBase):
         dev.updateStateOnServer("lowSince",        value=0)
         dev.updateStateOnServer("doorNotified",    value=False)
         dev.updateStateOnServer("socketNotified",  value=False)
+        # Re-arm the overrun warning: this is a new cycle, and it gets its own
+        # chance to run long. Without this a device warned once would never
+        # warn again.
+        dev.updateStateOnServer("overrunNotified", value=False)
         log(f"{dev.name}: cycle started")
         if prev != "running":
             self._notify(dev, "cycleStarted")
@@ -1113,6 +1278,7 @@ class Plugin(indigo.PluginBase):
         # discarded as too short, or the meter simply coming back online).
         dev.updateStateOnServer("doorNotified",   value=False)
         dev.updateStateOnServer("socketNotified", value=False)
+        dev.updateStateOnServer("overrunNotified", value=False)
 
     def _enter_off(self, dev):
         """Source device offline → appliance physically powered off
@@ -1123,7 +1289,67 @@ class Plugin(indigo.PluginBase):
         dev.updateStateOnServer("lowSince",       value=0)
         dev.updateStateOnServer("doorNotified",   value=False)
         dev.updateStateOnServer("socketNotified", value=False)
+        dev.updateStateOnServer("overrunNotified", value=False)
         log(f"{dev.name}: source device offline — appliance powered off (no socket reminder)")
+
+    # --------------------------------------------------------
+    # Action handlers
+    # --------------------------------------------------------
+
+    def _action_device(self, action):
+        """The applianceMonitor device an action was aimed at, or None.
+
+        An action group saved against a device that has since been deleted
+        still fires, so this must not assume the id resolves.
+        """
+        dev_id = getattr(action, "deviceId", 0)
+        try:
+            return indigo.devices[dev_id]
+        except Exception:
+            self.logger.error(
+                f"action was aimed at device id {dev_id}, which no longer exists")
+            return None
+
+    def actionResetToIdle(self, action):
+        """Put a stuck appliance back to idle, recording nothing.
+
+        Nothing is written to the cycle history on purpose: a cycle that never
+        really ended has no honest duration, peak or energy, and a fabricated
+        figure in the history would be worse than a gap.
+        """
+        dev = self._action_device(action)
+        if dev is None:
+            return
+        was     = dev.states.get("cycleState", "idle")
+        started = _i(dev.states.get("cycleStartedAt"), 0)
+        ran_for = (int(time.time()) - started) // 60 if started else 0
+        self._reset_to_idle(dev)
+        self._clear_cycle_metrics(dev)
+        dev.updateStateOnServer("cycleStartedAt", value=0)
+        dev.updateStateOnServer("lastCycleMinutes", value=0)
+        log(f"{dev.name}: reset to idle by hand (was '{was}'"
+            + (f", running {ran_for} min" if was in ("running", "finishing") and started else "")
+            + "). Nothing recorded for the abandoned cycle.")
+
+    def actionSendTestNotification(self, action):
+        """Prove the notification channels work without waiting for a cycle.
+
+        Uses the appliance's own recipients and settings, so it tests what is
+        actually configured rather than something adjacent to it. The
+        appliance's state is untouched.
+        """
+        dev = self._action_device(action)
+        if dev is None:
+            return
+        title = "Appliance Monitor test"
+        body  = (f"{dev.name}: this is a test message from Appliance Monitor. "
+                 f"If you can read it, this appliance's notifications are working.")
+        sent_p = self._send_pushover(dev, title, body)
+        sent_e = self._send_email(dev, title, body)
+        email_off = not _as_bool(dev.pluginProps.get("emailEnabled", True), True)
+        log(f"{dev.name}: test notification — Pushover delivered to {sent_p} recipient(s), "
+            f"email delivered to {sent_e} recipient(s)"
+            + (" (email is switched off for this appliance)" if email_off else ""))
 
     # --------------------------------------------------------
     # Menu handlers

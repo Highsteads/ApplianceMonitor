@@ -33,6 +33,19 @@
         </ConfigUI>
     </Event>
 
+    <Event id="cycleOverrun">
+        <Name>Appliance Monitor: Cycle Overrun</Name>
+        <ConfigUI>
+            <Field id="instructions" type="label" fontSize="small">
+                <Label>Fires once when a cycle has been running longer than the appliance's "Warn if a cycle runs longer than" setting. Usually means the meter is stuck above the run threshold, so the cycle will never end on its own and no door-ready alert will follow. The cycle is left alone — use the Reset Appliance to Idle action to clear it.</Label>
+            </Field>
+            <Field id="applianceDevice" type="menu">
+                <Label>Appliance:</Label>
+                <List class="indigo.devices" filter="self.applianceMonitor"/>
+            </Field>
+        </ConfigUI>
+    </Event>
+
     <Event id="socketReminder">
         <Name>Appliance Monitor: Socket-Off Reminder</Name>
         <ConfigUI>

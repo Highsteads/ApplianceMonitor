@@ -67,7 +67,24 @@
                 <Description>Discard a completed cycle whose highest reading never reached this, without recording it or sending any notification. Set it well above standby but below the appliance's real running draw. 0 disables the check.</Description>
             </Field>
 
+            <Field id="maxCycleMinutes" type="textfield" defaultValue="0">
+                <Label>Warn if a cycle runs longer than (min):</Label>
+                <Description>Fires the cycleOverrun event, once, if a cycle is still running after this long. Catches a meter stuck above the run threshold, which otherwise leaves the appliance reading "running" for ever and no door-ready alert is ever sent. It only warns — it does not end the cycle, because a cycle that never really ended has no honest duration or energy to record. Use the Reset Appliance to Idle action to clear one. 0 disables the check.</Description>
+            </Field>
+
             <Field id="separator2" type="separator"/>
+
+            <Field id="sourceOnlineStateKey" type="textfield" defaultValue="deviceOnline">
+                <Label>Meter online state key:</Label>
+                <Description>The state on the meter that says whether it is reachable. ShellyDirect calls it deviceOnline. When it reads false the appliance drops to "off" and any pending socket reminder is cancelled. If your meter has no such state, leave this as it is — a state that does not exist is simply ignored. Clear the field to switch the check off altogether.</Description>
+            </Field>
+
+            <Field id="sourceStaleMinutes" type="textfield" defaultValue="0">
+                <Label>Treat the meter as faulty after silence of (min):</Label>
+                <Description>A meter can stop reporting without ever saying it is offline, and the appliance then looks idle for ever. This raises a fault if the meter has not communicated for this long. It prefers the meter's last successful communication and falls back to its last state change. Leave at 0 unless you know your meter reports on a regular cadence — one that only writes a value when it CHANGES will look silent whenever the appliance is genuinely idle.</Description>
+            </Field>
+
+            <Field id="separator2b" type="separator"/>
 
             <Field id="doorDelayMinutes" type="textfield" defaultValue="2">
                 <Label>Door-ready delay (min):</Label>
@@ -240,6 +257,11 @@
                 <ValueType>Boolean</ValueType>
                 <TriggerLabel>Socket notified flag changes</TriggerLabel>
                 <ControlPageLabel>Socket Notified</ControlPageLabel>
+            </State>
+            <State id="overrunNotified">
+                <ValueType>Boolean</ValueType>
+                <TriggerLabel>Cycle-overrun warned flag changes</TriggerLabel>
+                <ControlPageLabel>Cycle Overrun Warned</ControlPageLabel>
             </State>
         </States>
         <UiDisplayStateId>cycleState</UiDisplayStateId>

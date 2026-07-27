@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Actions>
+
+    <!-- ============================================================
+         uiPath must be PascalCase with NO spaces — a space crashes the
+         Indigo client with NSInternalInconsistencyException.
+         ============================================================ -->
+
+    <Action id="resetToIdle" deviceFilter="self.applianceMonitor" uiPath="ApplianceActions">
+        <Name>Reset Appliance to Idle</Name>
+        <CallbackMethod>actionResetToIdle</CallbackMethod>
+        <ConfigUI>
+            <Field id="instructions" type="label" fontSize="small">
+                <Label>Puts the appliance back to idle and forgets the cycle in progress, without recording it or sending anything. Use it to clear a cycle stuck "running" because the meter is stuck above the run threshold — the cycleOverrun event warns you when that happens. Nothing is recorded, because a cycle that never really ended has no honest duration or energy.</Label>
+            </Field>
+        </ConfigUI>
+    </Action>
+
+    <Action id="sendTestNotification" deviceFilter="self.applianceMonitor" uiPath="ApplianceActions">
+        <Name>Send Test Notification</Name>
+        <CallbackMethod>actionSendTestNotification</CallbackMethod>
+        <ConfigUI>
+            <Field id="instructions" type="label" fontSize="small">
+                <Label>Sends a test message through whichever channels this appliance has switched on, so you can prove Pushover and email work without waiting for a real cycle. It uses the appliance's own recipients and settings, and reports in the log what was delivered. The appliance's state is not touched.</Label>
+            </Field>
+        </ConfigUI>
+    </Action>
+
+</Actions>

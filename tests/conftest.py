@@ -95,6 +95,10 @@ class FakeServer:
         self.lines   = []   # [(message, level)]
         self.emails  = []
         self.plugins = {}
+        # plugin_utils.log_startup_banner reads both of these, so showPluginInfo
+        # cannot be exercised without them.
+        self.version    = "2025.2.0"
+        self.apiVersion = "3.8"
 
     def log(self, message, type=None, level=None, isError=False):
         self.lines.append((message, level))
@@ -241,3 +245,41 @@ def appliance(indigo_mod):
 @pytest.fixture
 def meter(indigo_mod, appliance):
     return indigo_mod.devices[200]
+
+
+@pytest.fixture
+def trigger_for(plugin):
+    """Register a trigger listening for one event on one appliance.
+
+    Events only reach triggers the plugin has been told about via
+    triggerStartProcessing, so a test that just fires an event and looks at
+    indigo.trigger.executed would see nothing and prove nothing.
+    """
+    counter = {"n": 0}
+
+    def _make(event_id, device_id):
+        counter["n"] += 1
+        trig = FakeTrigger(9000 + counter["n"], event_id, str(device_id))
+        plugin.triggerStartProcessing(trig)
+        return trig
+
+    return _make
+
+
+@pytest.fixture
+def pushover(indigo_mod, plugin_mod):
+    """A working Pushover plugin registered under the id plugin.py looks up."""
+    fake = FakePushoverPlugin()
+    indigo_mod.server.plugins[plugin_mod.PUSHOVER_PLUGIN] = fake
+    return fake
+
+
+@pytest.fixture
+def started(plugin, appliance):
+    """An appliance that has been through deviceStartComm.
+
+    plugin.devices is only populated there, so anything iterating it (the menu
+    handlers, the tick loop) sees nothing without this.
+    """
+    plugin.deviceStartComm(appliance)
+    return appliance

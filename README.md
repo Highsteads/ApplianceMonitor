@@ -14,6 +14,7 @@ additional actions (email backup, logging, etc.):
 | `cycleStarted` | Power has risen above the run threshold (appliance has started) |
 | `doorReady` | The configured door-ready delay has elapsed after cycle end |
 | `socketReminder` | The configured reminder delay has elapsed after cycle end with no new cycle |
+| `cycleOverrun` | A cycle has been running longer than its configured limit — usually a meter stuck above the run threshold (v1.9.0) |
 
 The plugin does **not** switch anything off — it only observes. Use the
 events to drive notifications (e.g. a Pushover saying "please switch off
@@ -78,6 +79,9 @@ Create one Appliance Monitor device per appliance:
 | Send email alerts | Untick to silence email without clearing the recipients — keeps them on file as a dormant fallback (v1.6.0) | on |
 | Email recipients | Comma-separated email addresses notified alongside Pushover, for the same events ticked above (v1.4.0) | — |
 | Energy state name | State on the meter that reports a running kWh counter (e.g. `energyKwhToday`). Leave blank to skip per-cycle kWh capture | `energyKwhToday` |
+| Warn if a cycle runs longer than (min) | Fires `cycleOverrun` once if a cycle is still running after this long. It warns only — it does not end the cycle (v1.9.0) | `0` (off) |
+| Meter online state key | The state on the meter that says whether it is reachable. A state the meter does not have is simply ignored; clear the field to switch the check off (v1.9.0) | `deviceOnline` |
+| Treat the meter as faulty after silence of (min) | Raise a fault if the meter has not reported for this long. Only for meters that report on a regular cadence (v1.9.0) | `0` (off) |
 
 The plugin sends Pushover itself via the Pushover plugin
 (`io.thechad.indigoplugin.pushover`) — no Indigo triggers needed for the
@@ -87,6 +91,23 @@ type — the plugin fires the events on every transition regardless of the
 Pushover toggles.
 
 ## Recent changes
+
+### v1.9.0 — catching the meter misbehaving
+
+Four things the deep review deliberately parked as features rather than defects. All are off by default, so an existing appliance behaves exactly as it did until you switch one on.
+
+**A cycle that never ends.** If the meter sticks above the run threshold, the appliance reads "running" for ever: the cycle never finishes, no door-ready alert ever arrives, and nothing looks wrong. Set **Warn if a cycle runs longer than** and it fires the new `cycleOverrun` event once, with a warning naming how long it has been.
+
+It deliberately does not end the cycle for you. A cycle that never really finished has no honest duration, peak or energy, and writing an invented figure into the history and the cost would be worse than leaving a gap. Use the new **Reset Appliance to Idle** action to clear it.
+
+**A meter that goes quiet.** A meter can stop reporting without ever saying it is offline, and the appliance then looks idle indefinitely. **Treat the meter as faulty after silence of** raises the usual fault instead — red in the device list, logged once, cleared when it comes back. It prefers the meter's last successful communication and falls back to its last state change. Leave it off unless your meter reports on a regular cadence: one that only writes a value when it *changes* will look silent whenever the appliance is genuinely idle.
+
+**A meter that calls things something else.** The offline check was hardcoded to ShellyDirect's `deviceOnline`, so on any other meter it silently never fired. **Meter online state key** makes it configurable, and a name your meter does not have is now refused while the dialog is open rather than failing quietly for months.
+
+**Two new actions.** *Reset Appliance to Idle* gets you out of a stuck cycle without editing device states, recording nothing for the abandoned cycle. *Send Test Notification* proves Pushover and email work without waiting for a real wash, and reports how many recipients each channel actually reached.
+
+Tests went from 160 to 218, including the areas the review left uncovered — the menu handlers and the Pushover recipient list. The new paths have not been exercised against real hardware.
+
 
 ### v1.8.2 — housekeeping
 
