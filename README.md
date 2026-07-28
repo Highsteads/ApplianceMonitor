@@ -92,6 +92,15 @@ Pushover toggles.
 
 ## Recent changes
 
+### v1.9.1 — an ordering fix, found by real hardware
+
+The silence check added in v1.9.0 ran before the online check, so a meter that honestly reports itself offline — and is therefore also silent — raised "meter silent" and stopped there, blocking the move to "off" and leaving the appliance stuck in its previous state with any socket reminder still pending.
+
+Silence is now only judged while the meter *claims* to be online, which is the anomaly it was written for. A meter that says it is offline goes down the older path, which handles it better.
+
+Nobody was affected in practice: the check is off by default, and this only bites once you switch it on. It was found within hours of v1.9.0 by testing against a plug that had been off the network for thirteen hours — which is a fair argument for testing against real kit rather than only against tests.
+
+
 ### v1.9.0 — catching the meter misbehaving
 
 Four things the deep review deliberately parked as features rather than defects. All are off by default, so an existing appliance behaves exactly as it did until you switch one on.

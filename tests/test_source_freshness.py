@@ -88,6 +88,30 @@ def test_the_fault_clears_when_the_meter_reports_again(plugin, appliance, meter)
     assert not appliance.errorState
 
 
+def test_a_meter_that_REPORTS_offline_takes_the_off_path_not_the_stale_one(
+        plugin, appliance, meter):
+    """Found 28-07-2026 against real hardware. A meter off the network for 13 h
+    reports deviceOnline=False AND is silent, so the stale check — which ran
+    first — would have blocked the transition to "off" and left the appliance
+    stuck in its old state with the socket reminder still pending. A reported
+    offline is a different thing from an unexplained silence, and the "off"
+    path handles it better."""
+    appliance.pluginProps["sourceStaleMinutes"] = "30"
+    meter.states["deviceOnline"] = False
+    silent_for(meter, 800)
+    plugin._tick_device(appliance)
+    assert appliance.states["cycleState"] == "off"
+    assert not appliance.errorState
+
+
+def test_silence_only_counts_while_the_meter_claims_to_be_online(plugin, appliance, meter):
+    appliance.pluginProps["sourceStaleMinutes"] = "30"
+    meter.states["deviceOnline"] = True
+    silent_for(meter, 800)
+    plugin._tick_device(appliance)
+    assert appliance.errorState == "meter silent"
+
+
 def test_a_silent_meter_freezes_the_cycle_rather_than_guessing(plugin, appliance, meter):
     """Its readings cannot be trusted, so the FSM is left exactly as it was."""
     meter.states["powerWatts"] = 1000.0

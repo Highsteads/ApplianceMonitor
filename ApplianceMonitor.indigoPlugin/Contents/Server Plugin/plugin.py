@@ -6,8 +6,24 @@
 #              notifications directly and also fires three Indigo custom
 #              events: cycleStarted, doorReady, socketReminder.
 # Author:      CliveS & Claude Opus 5
-# Date:        27-07-2026
-# Version:     1.9.0
+# Date:        28-07-2026
+# Version:     1.9.1
+#
+# v1.9.1 (28-07-2026): ORDERING FIX to the v1.9.0 freshness check, found within
+# hours by testing against real hardware once the metering plugs came back.
+# The silence check ran BEFORE the online check, so a meter that honestly
+# reports itself offline — and is therefore also silent — raised "meter silent"
+# and returned, blocking the transition to "off". The appliance stayed stuck in
+# its previous state with any socket reminder still pending. A live plug that
+# had been off the network for 13 hours was exactly that shape.
+# Silence is now only judged while the meter CLAIMS to be online, which is the
+# anomaly the check was written for; a reported offline goes down the older and
+# better path. Latent in 1.9.0 for anyone who had not set sourceStaleMinutes,
+# which is off by default, so nobody was affected in practice.
+# Also live-verified this session: both new actions end to end (a real Pushover
+# delivered, the state left untouched, the delivered count honest) and the
+# source-back-online recovery. The two threshold features remain contract-tested
+# only — setting them needs the config dialog.
 #
 # v1.9.0 (27-07-2026): the four things the deep review deliberately left as
 # features rather than defects. Every one is off by default, so an existing
@@ -221,7 +237,7 @@ except ImportError:
 # ============================================================
 
 PLUGIN_ID       = "com.clives.indigoplugin.appliancemonitor"
-PLUGIN_VERSION  = "1.9.0"
+PLUGIN_VERSION  = "1.9.1"
 PUSHOVER_PLUGIN = "io.thechad.indigoplugin.pushover"
 TICK_SECONDS    = 20
 
@@ -868,19 +884,46 @@ class Plugin(indigo.PluginBase):
                 "no power state")
             return
 
-        # A meter can stop reporting without ever saying it is offline, and the
-        # appliance then sits there looking idle for ever. Off by default,
-        # because a meter that only writes a CHANGED value legitimately looks
-        # silent whenever the appliance is idle.
-        if stale_s > 0:
+        # Does the meter claim to be reachable? Worked out here, before the
+        # silence check below, because the two answer different questions and
+        # the order between them matters — see the comment there.
+        #
+        # The state name is configurable (v1.9.0) — it was hardcoded to
+        # ShellyDirect's `deviceOnline`, so for a meter that calls it anything
+        # else the offline path simply never fired. A key that is absent from
+        # the meter, or blanked in the settings, means "no opinion" and the
+        # appliance is treated as online, which is the old default-True
+        # behaviour and keeps every existing device working unchanged.
+        #
+        # Coerced rather than tested for truthiness: the state comes from a
+        # third-party plugin and a string "false" would otherwise read as True.
+        online_key = (props.get("sourceOnlineStateKey", "deviceOnline") or "").strip()
+        if not online_key or online_key not in src.states:
+            src_online = True
+        else:
+            src_online = _as_bool(src.states.get(online_key, True), True)
+
+        # A meter can stop reporting without ever SAYING it is offline, and the
+        # appliance then sits there looking idle for ever.
+        #
+        # Only checked while the meter claims to be ONLINE. A meter that honestly
+        # reports itself offline is a different thing entirely, and the path
+        # below handles it better: it moves the appliance to "off" and cancels
+        # any pending socket reminder. Raising "meter silent" first would block
+        # that and leave the appliance stuck in its old state — which is exactly
+        # what a live meter that had been off the network for 13 hours would
+        # have done here (found 28-07-2026, testing against real hardware).
+        #
+        # Off by default, because a meter that only writes a CHANGED value
+        # legitimately looks silent whenever the appliance is idle.
+        if src_online and stale_s > 0:
             silence = _source_silence_seconds(src)
             if silence is not None and silence >= stale_s:
                 self._set_source_fault(
                     dev, "stale-source",
-                    f"[{dev.name}] meter '{src.name}' has not reported for "
-                    f"{silence / 60:.0f} min (limit {stale_s // 60} min), so its readings "
-                    f"cannot be trusted. The appliance is left as it is until the meter "
-                    f"reports again.",
+                    f"[{dev.name}] meter '{src.name}' says it is online but has not reported "
+                    f"for {silence / 60:.0f} min (limit {stale_s // 60} min), so its readings "
+                    f"cannot be trusted. The appliance is left as it is until it reports again.",
                     "meter silent")
                 return
 
@@ -908,20 +951,7 @@ class Plugin(indigo.PluginBase):
         # Default-True so devices that don't track online status (or
         # never go offline) are unaffected.
         # --------------------------------------------------------
-        # The state name is configurable (v1.9.0) — it was hardcoded to
-        # ShellyDirect's `deviceOnline`, so for a meter that calls it anything
-        # else the offline path simply never fired. A key that is absent from
-        # the meter, or blanked in the settings, means "no opinion" and the
-        # appliance is treated as online, which is the old default-True
-        # behaviour and keeps every existing device working unchanged.
-        #
-        # Coerced rather than tested for truthiness: the state comes from a
-        # third-party plugin and a string "false" would otherwise read as True.
-        online_key = (props.get("sourceOnlineStateKey", "deviceOnline") or "").strip()
-        if not online_key or online_key not in src.states:
-            src_online = True
-        else:
-            src_online = _as_bool(src.states.get(online_key, True), True)
+        # src_online was worked out above, before the silence check.
 
         if not src_online:
             if state in _OFFLINE_OK_STATES:
