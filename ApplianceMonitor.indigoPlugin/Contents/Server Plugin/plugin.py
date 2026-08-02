@@ -7,7 +7,7 @@
 #              events: cycleStarted, doorReady, socketReminder.
 # Author:      CliveS & Claude Opus 5
 # Date:        28-07-2026
-# Version:     1.9.1
+# Version:     1.9.2
 #
 # v1.9.1 (28-07-2026): ORDERING FIX to the v1.9.0 freshness check, found within
 # hours by testing against real hardware once the metering plugs came back.
@@ -237,7 +237,7 @@ except ImportError:
 # ============================================================
 
 PLUGIN_ID       = "com.clives.indigoplugin.appliancemonitor"
-PLUGIN_VERSION  = "1.9.1"
+PLUGIN_VERSION  = "1.9.2"
 PUSHOVER_PLUGIN = "io.thechad.indigoplugin.pushover"
 TICK_SECONDS    = 20
 

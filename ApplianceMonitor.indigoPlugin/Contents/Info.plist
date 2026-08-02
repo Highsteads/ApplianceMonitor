@@ -10,6 +10,13 @@
 	<string>ApplianceMonitor</string>
 	<key>CFBundleShortVersionString</key>
 	<string>1.9.1</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>https://github.com/Highsteads/ApplianceMonitor</string>
+		</dict>
+	</array>
 	<key>CFBundleVersion</key>
 	<string>1.0.0</string>
 	<key>GithubInfo</key>
@@ -20,7 +27,7 @@
 		<string>Highsteads</string>
 	</dict>
 	<key>PluginVersion</key>
-	<string>1.9.1</string>
+	<string>1.9.2</string>
 	<key>ServerApiVersion</key>
 	<string>3.0</string>
 </dict>
