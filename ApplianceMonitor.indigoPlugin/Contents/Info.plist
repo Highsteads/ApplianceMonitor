@@ -8,8 +8,6 @@
 	<string>com.clives.indigoplugin.appliancemonitor</string>
 	<key>CFBundleName</key>
 	<string>ApplianceMonitor</string>
-	<key>CFBundleShortVersionString</key>
-	<string>1.9.1</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
