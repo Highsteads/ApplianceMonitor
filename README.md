@@ -92,6 +92,12 @@ Pushover toggles.
 
 ## Recent changes
 
+### v1.9.2 — the support link Indigo asks every plugin for
+
+Indigo's Developer's Guide lists six keys every plugin must carry in its bundle, and one of them had never been there: the support address that becomes the **About Appliance Monitor** item in the Plugins menu. It now points at this repository.
+
+Nothing about how the plugin works has changed. It was found by a sweep of the whole estate, prompted by the same missing key stopping a different plugin from installing at all.
+
 ### v1.9.1 — an ordering fix, found by real hardware
 
 The silence check added in v1.9.0 ran before the online check, so a meter that honestly reports itself offline — and is therefore also silent — raised "meter silent" and stopped there, blocking the move to "off" and leaving the appliance stuck in its previous state with any socket reminder still pending.
