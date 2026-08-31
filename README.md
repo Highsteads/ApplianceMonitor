@@ -1,5 +1,6 @@
 # Appliance Monitor
 
+**Version:** 1.9.2 | **Author:** CliveS & Claude | **Platform:** Indigo 2025.2 or later
 Detect when a household appliance (washing machine, dishwasher, tumble dryer,
 oven) starts and ends a cycle by watching the **power draw** reported by a
 separate metering device — typically a Shelly Plug/PM running under the
