@@ -32,12 +32,16 @@
 
             <Field id="sourceEnergyStateKey" type="textfield" defaultValue="energyKwhToday">
                 <Label>Energy state name (optional):</Label>
-                <Description>State key on the source device that reports a running kWh counter. ShellyDirect uses "energyKwhToday". Leave blank if the meter has no energy counter — the plugin will simply skip the per-cycle kWh measurement.</Description>
+            </Field>
+            <Field id="label_sourceEnergyStateKey_info" type="label">
+                <Label>State key on the source device that reports a running kWh counter. ShellyDirect uses "energyKwhToday". Leave blank if the meter has no energy counter — the plugin will simply skip the per-cycle kWh measurement.</Label>
             </Field>
 
             <Field id="rateVariableName" type="textfield" defaultValue="">
                 <Label>Rate variable (optional):</Label>
-                <Description>Name of an Indigo variable holding your electricity import rate in pence per kWh (e.g. "tracker_rate_today"). When set, every finished cycle gets a cost: cycle kWh times the rate at cycle end. Leave blank to skip costing.</Description>
+            </Field>
+            <Field id="label_rateVariableName_info" type="label">
+                <Label>Name of an Indigo variable holding your electricity import rate in pence per kWh (e.g. "tracker_rate_today"). When set, every finished cycle gets a cost: cycle kWh times the rate at cycle end. Leave blank to skip costing.</Label>
             </Field>
 
             <Field id="separator1" type="separator"/>
@@ -54,46 +58,62 @@
 
             <Field id="debounceMinutes" type="textfield" defaultValue="3">
                 <Label>End-of-cycle debounce (min):</Label>
-                <Description>How long power must stay below the idle threshold before the cycle is declared ended. Avoids false ends during mid-cycle quiet phases. Set to 0 to disable debounce (cycle ends on first sub-idle reading — only safe for appliances whose final phase never dips below idleThresholdWatts before fully stopping).</Description>
+            </Field>
+            <Field id="label_debounceMinutes_info" type="label">
+                <Label>How long power must stay below the idle threshold before the cycle is declared ended. Avoids false ends during mid-cycle quiet phases. Set to 0 to disable debounce (cycle ends on first sub-idle reading — only safe for appliances whose final phase never dips below idleThresholdWatts before fully stopping).</Label>
             </Field>
 
             <Field id="minCycleMinutes" type="textfield" defaultValue="0">
                 <Label>Ignore cycles shorter than (min):</Label>
-                <Description>Discard a completed cycle shorter than this, without recording it or sending any notification. Use it to stop a brief standby blip being reported as a wash. 0 disables the check.</Description>
+            </Field>
+            <Field id="label_minCycleMinutes_info" type="label">
+                <Label>Discard a completed cycle shorter than this, without recording it or sending any notification. Use it to stop a brief standby blip being reported as a wash. 0 disables the check.</Label>
             </Field>
 
             <Field id="minCyclePeakWatts" type="textfield" defaultValue="0">
                 <Label>Ignore cycles peaking below (W):</Label>
-                <Description>Discard a completed cycle whose highest reading never reached this, without recording it or sending any notification. Set it well above standby but below the appliance's real running draw. 0 disables the check.</Description>
+            </Field>
+            <Field id="label_minCyclePeakWatts_info" type="label">
+                <Label>Discard a completed cycle whose highest reading never reached this, without recording it or sending any notification. Set it well above standby but below the appliance's real running draw. 0 disables the check.</Label>
             </Field>
 
             <Field id="maxCycleMinutes" type="textfield" defaultValue="0">
                 <Label>Warn if a cycle runs longer than (min):</Label>
-                <Description>Fires the cycleOverrun event, once, if a cycle is still running after this long. Catches a meter stuck above the run threshold, which otherwise leaves the appliance reading "running" for ever and no door-ready alert is ever sent. It only warns — it does not end the cycle, because a cycle that never really ended has no honest duration or energy to record. Use the Reset Appliance to Idle action to clear one. 0 disables the check.</Description>
+            </Field>
+            <Field id="label_maxCycleMinutes_info" type="label">
+                <Label>Fires the cycleOverrun event, once, if a cycle is still running after this long. Catches a meter stuck above the run threshold, which otherwise leaves the appliance reading "running" for ever and no door-ready alert is ever sent. It only warns — it does not end the cycle, because a cycle that never really ended has no honest duration or energy to record. Use the Reset Appliance to Idle action to clear one. 0 disables the check.</Label>
             </Field>
 
             <Field id="separator2" type="separator"/>
 
             <Field id="sourceOnlineStateKey" type="textfield" defaultValue="deviceOnline">
                 <Label>Meter online state key:</Label>
-                <Description>The state on the meter that says whether it is reachable. ShellyDirect calls it deviceOnline. When it reads false the appliance drops to "off" and any pending socket reminder is cancelled. If your meter has no such state, leave this as it is — a state that does not exist is simply ignored. Clear the field to switch the check off altogether.</Description>
+            </Field>
+            <Field id="label_sourceOnlineStateKey_info" type="label">
+                <Label>The state on the meter that says whether it is reachable. ShellyDirect calls it deviceOnline. When it reads false the appliance drops to "off" and any pending socket reminder is cancelled. If your meter has no such state, leave this as it is — a state that does not exist is simply ignored. Clear the field to switch the check off altogether.</Label>
             </Field>
 
             <Field id="sourceStaleMinutes" type="textfield" defaultValue="0">
                 <Label>Treat the meter as faulty after silence of (min):</Label>
-                <Description>A meter can stop reporting without ever saying it is offline, and the appliance then looks idle for ever. This raises a fault if the meter has not communicated for this long. It prefers the meter's last successful communication and falls back to its last state change. Leave at 0 unless you know your meter reports on a regular cadence — one that only writes a value when it CHANGES will look silent whenever the appliance is genuinely idle.</Description>
+            </Field>
+            <Field id="label_sourceStaleMinutes_info" type="label">
+                <Label>A meter can stop reporting without ever saying it is offline, and the appliance then looks idle for ever. This raises a fault if the meter has not communicated for this long. It prefers the meter's last successful communication and falls back to its last state change. Leave at 0 unless you know your meter reports on a regular cadence — one that only writes a value when it CHANGES will look silent whenever the appliance is genuinely idle.</Label>
             </Field>
 
             <Field id="separator2b" type="separator"/>
 
             <Field id="doorDelayMinutes" type="textfield" defaultValue="2">
                 <Label>Door-ready delay (min):</Label>
-                <Description>Fires the doorReady event this long after the power actually stopped - NOT after the debounce window above. Set it to the appliance's door-lock release delay. If it is shorter than the debounce, the alert goes out on the same tick the cycle is declared ended.</Description>
+            </Field>
+            <Field id="label_doorDelayMinutes_info" type="label">
+                <Label>Fires the doorReady event this long after the power actually stopped - NOT after the debounce window above. Set it to the appliance's door-lock release delay. If it is shorter than the debounce, the alert goes out on the same tick the cycle is declared ended.</Label>
             </Field>
 
             <Field id="socketReminderMinutes" type="textfield" defaultValue="30">
                 <Label>Socket-reminder delay (min):</Label>
-                <Description>Fires the socketReminder event this long after cycle end if no new cycle has started. Use this to prompt yourself to switch off a manual wall socket.</Description>
+            </Field>
+            <Field id="label_socketReminderMinutes_info" type="label">
+                <Label>Fires the socketReminder event this long after cycle end if no new cycle has started. Use this to prompt yourself to switch off a manual wall socket.</Label>
             </Field>
 
             <Field id="separator3" type="separator"/>
@@ -104,7 +124,9 @@
 
             <Field id="notifyCycleStarted" type="checkbox" defaultValue="false">
                 <Label>Notify on cycle start:</Label>
-                <Description>Send a Pushover when the appliance begins drawing power. Off by default — usually only useful when calibrating.</Description>
+            </Field>
+            <Field id="label_notifyCycleStarted_info" type="label">
+                <Label>Send a Pushover when the appliance begins drawing power. Off by default — usually only useful when calibrating.</Label>
             </Field>
 
             <Field id="notifyDoorReady" type="checkbox" defaultValue="true">
@@ -147,7 +169,9 @@
 
             <Field id="pushoverSound" type="textfield" defaultValue="vibrate">
                 <Label>Pushover sound:</Label>
-                <Description>"vibrate" for silent buzz (default), "pushover" for the standard tone, or any Pushover API sound name.</Description>
+            </Field>
+            <Field id="label_pushoverSound_info" type="label">
+                <Label>"vibrate" for silent buzz (default), "pushover" for the standard tone, or any Pushover API sound name.</Label>
             </Field>
 
             <Field id="pushoverUserToken" type="textfield" defaultValue="">
@@ -157,7 +181,9 @@
 
             <Field id="pushoverAlsoNotify" type="textfield" defaultValue="">
                 <Label>Also notify (extra Pushover users):</Label>
-                <Description>Comma-separated additional Pushover user keys (or a delivery-group key) to send a copy to, on top of the primary recipient above — e.g. a partner who has their own Pushover account. Each gets the same alert. Leave blank to notify only the primary recipient.</Description>
+            </Field>
+            <Field id="label_pushoverAlsoNotify_info" type="label">
+                <Label>Comma-separated additional Pushover user keys (or a delivery-group key) to send a copy to, on top of the primary recipient above — e.g. a partner who has their own Pushover account. Each gets the same alert. Leave blank to notify only the primary recipient.</Label>
             </Field>
 
             <Field id="separator4" type="separator"/>
@@ -168,12 +194,16 @@
 
             <Field id="emailEnabled" type="checkbox" defaultValue="true">
                 <Label>Send email alerts:</Label>
-                <Description>Untick to silence email without clearing the recipients below — handy for keeping addresses on file as a dormant fallback while Pushover does the live notifying (so people aren't pinged twice for one event).</Description>
+            </Field>
+            <Field id="label_emailEnabled_info" type="label">
+                <Label>Untick to silence email without clearing the recipients below — handy for keeping addresses on file as a dormant fallback while Pushover does the live notifying (so people aren't pinged twice for one event).</Label>
             </Field>
 
             <Field id="emailRecipients" type="textfield" defaultValue="">
                 <Label>Email recipients (optional):</Label>
-                <Description>Comma-separated email addresses to notify in addition to Pushover (e.g. "jane@example.com, sam@example.com"). Sent via the Email+ plugin's first SMTP server. Leave blank to send Pushover only.</Description>
+            </Field>
+            <Field id="label_emailRecipients_info" type="label">
+                <Label>Comma-separated email addresses to notify in addition to Pushover (e.g. "jane@example.com, sam@example.com"). Sent via the Email+ plugin's first SMTP server. Leave blank to send Pushover only.</Label>
             </Field>
 
         </ConfigUI>

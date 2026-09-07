@@ -1,6 +1,6 @@
 # Appliance Monitor
 
-**Version:** 1.9.2 | **Author:** CliveS & Claude | **Platform:** Indigo 2025.2 or later
+**Version:** 1.9.3 | **Author:** CliveS & Claude | **Platform:** Indigo 2025.2 or later
 Detect when a household appliance (washing machine, dishwasher, tumble dryer,
 oven) starts and ends a cycle by watching the **power draw** reported by a
 separate metering device — typically a Shelly Plug/PM running under the
@@ -93,6 +93,8 @@ Pushover toggles.
 
 ## Recent changes
 
+
+**v1.9.3** - **The settings dialog was stretched wider than its own window, so the help text beside each setting was cut off mid-sentence.** The short help that can be attached to a setting is drawn on a single line and never wraps, so the longest one decides how wide every row is — and the window cannot be widened past a fixed maximum. All fifteen long ones have moved into ordinary description paragraphs, which do wrap. Two new checks fail the build if any help text or setting label grows long enough to do it again. No setting or behaviour changed.
 ### v1.9.2 — the support link Indigo asks every plugin for
 
 Indigo's Developer's Guide lists six keys every plugin must carry in its bundle, and one of them had never been there: the support address that becomes the **About Appliance Monitor** item in the Plugins menu. It now points at this repository.
