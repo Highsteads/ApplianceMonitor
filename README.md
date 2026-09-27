@@ -2,7 +2,7 @@
 
 **Know when the washing is done, from the power the machine draws.**
 
-**Version:** 1.10.0 | **Author:** CliveS & Claude | **Needs:** Indigo 2022.1 or later, and a plug or meter that reports watts
+**Version:** 1.11.0 | **Author:** CliveS & Claude | **Needs:** Indigo 2022.1 or later, and a plug or meter that reports watts
 
 **[Read the full guide](https://highsteads.github.io/ApplianceMonitor/)** — setting up, what everything means, and what to do when something goes wrong.
 
@@ -41,11 +41,11 @@ The [full guide](https://highsteads.github.io/ApplianceMonitor/) goes through ea
 
 ## What's new
 
+**v1.11.0** — A meter fault shown in red on an appliance now stays there until the meter reads properly again. Resetting the appliance to idle used to clear it while the fault was still there.
+
 **v1.10.0** — A new appliance on a meter other than a Shelly plug now saves without first clearing **Meter online state key**, as the help beside it always said it would.
 
 **v1.9.3** — The help beside several settings in the appliance's settings window was cut off part-way through. It now sits on its own lines, where it can be read in full. No setting or behaviour changed.
-
-**v1.9.2** — The **About Appliance Monitor** item in the Plugins menu opens this project's page.
 
 Every version is listed in the [version history](https://highsteads.github.io/ApplianceMonitor/changelog.html).
 

@@ -7,7 +7,13 @@
 #              events: cycleStarted, doorReady, socketReminder.
 # Author:      CliveS & Claude Opus 5, Claude Opus 5.5
 # Date:        27-09-2026
-# Version:     1.10.0
+# Version:     1.11.0
+#
+# v1.11.0 (27-09-2026): a power-meter fault now stays on the device until the
+# meter reads properly again. Every state write goes through _write_state,
+# which passes clearErrorState=False, because Indigo's default wiped the red
+# error on the next write (the Reset Appliance to Idle action did it) and the
+# latched fault never set it again, so Device Health Monitor stopped seeing it.
 #
 # v1.10.0 (27-09-2026): a Meter online state key the meter does not have is
 # ACCEPTED at save time and ignored (one INFO note when the dialog is saved),
@@ -243,7 +249,7 @@ except ImportError:
 # ============================================================
 
 PLUGIN_ID       = "com.clives.indigoplugin.appliancemonitor"
-PLUGIN_VERSION  = "1.10.0"
+PLUGIN_VERSION  = "1.11.0"
 PUSHOVER_PLUGIN = "io.thechad.indigoplugin.pushover"
 TICK_SECONDS    = 20
 
@@ -329,6 +335,23 @@ def _as_bool(value, default=False):
     if isinstance(value, (int, float)):
         return bool(value)
     return str(value).strip().lower() in ("true", "1", "yes", "on")
+
+
+def _write_state(dev, key, value, uiValue=None):
+    """Write one device state WITHOUT touching the device's error state.
+
+    Indigo's updateStateOnServer clears a device's error state by default. The
+    only error this plugin sets is a latched power-meter fault ("no source
+    device", "no power state", "meter silent"), set once when the fault starts
+    and cleared by _clear_source_fault when the meter reads properly again. Any
+    other write, such as the Reset Appliance to Idle action, used to wipe it
+    while the fault still stood, and nothing put it back until the fault
+    changed. Every state write goes through here so that cannot happen.
+    """
+    if uiValue is None:
+        dev.updateStateOnServer(key, value=value, clearErrorState=False)
+    else:
+        dev.updateStateOnServer(key, value=value, uiValue=uiValue, clearErrorState=False)
 
 
 def _source_silence_seconds(src, now=None):
@@ -432,17 +455,17 @@ class Plugin(indigo.PluginBase):
         # Seed defaults so the device states are populated even before the
         # first tick (otherwise control pages show blanks).
         if dev.states.get("cycleState") not in VALID_STATES:
-            dev.updateStateOnServer("cycleState", value="idle")
+            _write_state(dev, "cycleState", value="idle")
         for key in ("cycleStartedAt", "cycleFinishedAt", "lowSince", "lastCycleMinutes"):
             if not dev.states.get(key):
-                dev.updateStateOnServer(key, value=0)
+                _write_state(dev, key, value=0)
         for key in ("lastCyclePeakWatts", "lastCycleEnergyKwh",
                     "lastCycleCostGbp", "lastCycleRateP"):
             if dev.states.get(key) in (None, ""):
-                dev.updateStateOnServer(key, value=0.0, uiValue="0.0")
+                _write_state(dev, key, value=0.0, uiValue="0.0")
         for key in ("doorNotified", "socketNotified", "overrunNotified"):
             if dev.states.get(key) is None:
-                dev.updateStateOnServer(key, value=False)
+                _write_state(dev, key, value=False)
         self.devices[dev.id] = dev
 
         # Rebuild the in-flight cycle metrics from the persisted states rather
@@ -455,8 +478,8 @@ class Plugin(indigo.PluginBase):
         # energy baseline of zero, so a marker state is the only safe signal.
         # A new Integer state also reads 0, which is exactly what we want here.
         if _i(dev.states.get("cycleStateVersion"), 0) < CYCLE_STATE_VERSION:
-            dev.updateStateOnServer("cyclePeakWatts", value=0.0, uiValue="0 W")
-            dev.updateStateOnServer("cycleKwhStart",  value=-1.0, uiValue="n/a")
+            _write_state(dev, "cyclePeakWatts", value=0.0, uiValue="0 W")
+            _write_state(dev, "cycleKwhStart",  value=-1.0, uiValue="n/a")
             # Clear any historical cycle energy that this version would reject.
             # Installs upgrading from an earlier version can be carrying an
             # impossible figure from a source meter that misreported, and it
@@ -465,10 +488,10 @@ class Plugin(indigo.PluginBase):
             if stale_kwh > MAX_CYCLE_KWH:
                 log(f"{dev.name}: clearing an impossible stored cycle energy of "
                     f"{stale_kwh:.3f} kWh left by an earlier version", level="WARNING")
-                dev.updateStateOnServer("lastCycleEnergyKwh", value=0.0, uiValue="n/a")
-                dev.updateStateOnServer("lastCycleCostGbp",   value=0.0, uiValue="—")
-                dev.updateStateOnServer("lastCycleRateP",     value=0.0, uiValue="—")
-            dev.updateStateOnServer("cycleStateVersion", value=CYCLE_STATE_VERSION)
+                _write_state(dev, "lastCycleEnergyKwh", value=0.0, uiValue="n/a")
+                _write_state(dev, "lastCycleCostGbp",   value=0.0, uiValue="—")
+                _write_state(dev, "lastCycleRateP",     value=0.0, uiValue="—")
+            _write_state(dev, "cycleStateVersion", value=CYCLE_STATE_VERSION)
             peak_so_far, stored_base = 0.0, -1.0
         else:
             peak_so_far = _f(dev.states.get("cyclePeakWatts"), 0.0)
@@ -945,7 +968,7 @@ class Plugin(indigo.PluginBase):
         now   = int(time.time())
         state = dev.states.get("cycleState", "idle")
 
-        dev.updateStateOnServer("currentWatts", value=watts, uiValue=f"{watts:.1f} W")
+        _write_state(dev, "currentWatts", value=watts, uiValue=f"{watts:.1f} W")
 
         if self.debug:
             self.logger.debug(f"[{dev.name}] state={state} watts={watts:.1f}")
@@ -1018,8 +1041,8 @@ class Plugin(indigo.PluginBase):
             self._track_peak(dev, watts)
             self._check_cycle_overrun(dev, now, max_cycle_s)
             if watts < idle_w:
-                dev.updateStateOnServer("lowSince", value=now)
-                dev.updateStateOnServer("cycleState", value="finishing")
+                _write_state(dev, "lowSince", value=now)
+                _write_state(dev, "cycleState", value="finishing")
                 if self.debug:
                     self.logger.debug(f"[{dev.name}] entered finishing at {now}")
 
@@ -1030,8 +1053,8 @@ class Plugin(indigo.PluginBase):
             # and that is just as stuck as one pinned above the run threshold.
             self._check_cycle_overrun(dev, now, max_cycle_s)
             if watts >= run_w:
-                dev.updateStateOnServer("lowSince", value=0)
-                dev.updateStateOnServer("cycleState", value="running")
+                _write_state(dev, "lowSince", value=0)
+                _write_state(dev, "cycleState", value="running")
                 if self.debug:
                     self.logger.debug(f"[{dev.name}] returned to running")
             else:
@@ -1062,12 +1085,12 @@ class Plugin(indigo.PluginBase):
             # blows up we must not re-notify every 20 seconds forever. _notify
             # guards each channel internally, so a failure is logged, not lost.
             if not door_notified and elapsed >= door_delay:
-                dev.updateStateOnServer("doorNotified", value=True)
+                _write_state(dev, "doorNotified", value=True)
                 self._notify(dev, "doorReady")
                 log(f"{dev.name}: door ready ({elapsed // 60} min after cycle end)")
 
             if not socket_notified and elapsed >= socket_delay:
-                dev.updateStateOnServer("socketNotified", value=True)
+                _write_state(dev, "socketNotified", value=True)
                 self._notify(dev, "socketReminder")
                 log(f"{dev.name}: socket-off reminder ({elapsed // 60} min after cycle end)")
                 # Job done - back to idle, ready for the next cycle.
@@ -1100,7 +1123,7 @@ class Plugin(indigo.PluginBase):
         elapsed = now - started
         if elapsed < max_cycle_s:
             return
-        dev.updateStateOnServer("overrunNotified", value=True)
+        _write_state(dev, "overrunNotified", value=True)
         self.logger.warning(
             f"[{dev.name}] the cycle has been running {elapsed // 60} min, longer than "
             f"the {max_cycle_s // 60} min limit. The meter is probably stuck above the "
@@ -1119,7 +1142,7 @@ class Plugin(indigo.PluginBase):
         rt = self.runtime.setdefault(dev.id, {"peak": 0.0, "kwh_start": None, "above": 0})
         if watts > rt["peak"]:
             rt["peak"] = watts
-            dev.updateStateOnServer("cyclePeakWatts", value=watts, uiValue=f"{watts:.0f} W")
+            _write_state(dev, "cyclePeakWatts", value=watts, uiValue=f"{watts:.0f} W")
 
     def _enter_running(self, dev, now, src=None, energy_key="", watts=0.0):
         prev = dev.states.get("cycleState", "idle")
@@ -1140,23 +1163,23 @@ class Plugin(indigo.PluginBase):
         # Seed the peak with the reading that triggered the cycle, so a short
         # cycle cannot record a 0 W peak.
         self.runtime[dev.id] = {"peak": _f(watts, 0.0), "kwh_start": kwh_start, "above": 0}
-        dev.updateStateOnServer("cyclePeakWatts", value=_f(watts, 0.0),
-                                uiValue=f"{_f(watts, 0.0):.0f} W")
-        dev.updateStateOnServer(
+        _write_state(dev, "cyclePeakWatts", value=_f(watts, 0.0),
+                     uiValue=f"{_f(watts, 0.0):.0f} W")
+        _write_state(dev,
             "cycleKwhStart",
             value=(kwh_start if kwh_start is not None else -1.0),
             uiValue=(f"{kwh_start:.3f} kWh" if kwh_start is not None else "n/a"),
         )
 
-        dev.updateStateOnServer("cycleState",      value="running")
-        dev.updateStateOnServer("cycleStartedAt",  value=now)
-        dev.updateStateOnServer("lowSince",        value=0)
-        dev.updateStateOnServer("doorNotified",    value=False)
-        dev.updateStateOnServer("socketNotified",  value=False)
+        _write_state(dev, "cycleState",      value="running")
+        _write_state(dev, "cycleStartedAt",  value=now)
+        _write_state(dev, "lowSince",        value=0)
+        _write_state(dev, "doorNotified",    value=False)
+        _write_state(dev, "socketNotified",  value=False)
         # Re-arm the overrun warning: this is a new cycle, and it gets its own
         # chance to run long. Without this a device warned once would never
         # warn again.
-        dev.updateStateOnServer("overrunNotified", value=False)
+        _write_state(dev, "overrunNotified", value=False)
         log(f"{dev.name}: cycle started")
         if prev != "running":
             self._notify(dev, "cycleStarted")
@@ -1248,13 +1271,13 @@ class Plugin(indigo.PluginBase):
                     else:
                         kwh_used, kwh_known = checked, True
 
-        dev.updateStateOnServer("cycleState",         value="doorWait")
-        dev.updateStateOnServer("cycleFinishedAt",    value=finished_at)
-        dev.updateStateOnServer("lastCycleMinutes",   value=minutes)
-        dev.updateStateOnServer("lastCyclePeakWatts", value=peak_w,
-                                uiValue=f"{peak_w:.0f} W")
-        dev.updateStateOnServer("lastCycleEnergyKwh", value=round(kwh_used, 3),
-                                uiValue=(f"{kwh_used:.3f} kWh" if kwh_known else "n/a"))
+        _write_state(dev, "cycleState",         value="doorWait")
+        _write_state(dev, "cycleFinishedAt",    value=finished_at)
+        _write_state(dev, "lastCycleMinutes",   value=minutes)
+        _write_state(dev, "lastCyclePeakWatts", value=peak_w,
+                     uiValue=f"{peak_w:.0f} W")
+        _write_state(dev, "lastCycleEnergyKwh", value=round(kwh_used, 3),
+                     uiValue=(f"{kwh_used:.3f} kWh" if kwh_known else "n/a"))
 
         # Cost-per-cycle (v1.3.0): kWh used × the import rate (pence/kWh) read
         # from a user-named Indigo variable at cycle end. This is "what the
@@ -1283,14 +1306,14 @@ class Plugin(indigo.PluginBase):
                 f"cost is not worked out. Set one in the appliance's settings to see it."
             )
         cost_gbp = kwh_used * rate_p / 100.0 if rate_p > 0 else 0.0
-        dev.updateStateOnServer("lastCycleCostGbp", value=round(cost_gbp, 3),
-                                uiValue=(f"£{cost_gbp:.2f}" if cost_gbp > 0 else "—"))
-        dev.updateStateOnServer("lastCycleRateP", value=round(rate_p, 2),
-                                uiValue=(f"{rate_p:.2f} p/kWh" if rate_p > 0 else "—"))
+        _write_state(dev, "lastCycleCostGbp", value=round(cost_gbp, 3),
+                     uiValue=(f"£{cost_gbp:.2f}" if cost_gbp > 0 else "—"))
+        _write_state(dev, "lastCycleRateP", value=round(rate_p, 2),
+                     uiValue=(f"{rate_p:.2f} p/kWh" if rate_p > 0 else "—"))
 
-        dev.updateStateOnServer("lowSince",           value=0)
-        dev.updateStateOnServer("doorNotified",       value=False)
-        dev.updateStateOnServer("socketNotified",     value=False)
+        _write_state(dev, "lowSince",           value=0)
+        _write_state(dev, "doorNotified",       value=False)
+        _write_state(dev, "socketNotified",     value=False)
         # Reset runtime so the next cycle starts clean.
         self._clear_cycle_metrics(dev)
 
@@ -1309,29 +1332,29 @@ class Plugin(indigo.PluginBase):
         restart, so both have to be cleared together.
         """
         self.runtime[dev.id] = {"peak": 0.0, "kwh_start": None, "above": 0}
-        dev.updateStateOnServer("cyclePeakWatts", value=0.0, uiValue="0 W")
-        dev.updateStateOnServer("cycleKwhStart",  value=-1.0, uiValue="n/a")
+        _write_state(dev, "cyclePeakWatts", value=0.0, uiValue="0 W")
+        _write_state(dev, "cycleKwhStart",  value=-1.0, uiValue="n/a")
 
     def _reset_to_idle(self, dev):
-        dev.updateStateOnServer("cycleState",     value="idle")
-        dev.updateStateOnServer("lowSince",       value=0)
+        _write_state(dev, "cycleState",     value="idle")
+        _write_state(dev, "lowSince",       value=0)
         # Clear both alert latches too, so the next cycle starts from a known
         # position however it was reached (socket reminder sent, cycle
         # discarded as too short, or the meter simply coming back online).
-        dev.updateStateOnServer("doorNotified",   value=False)
-        dev.updateStateOnServer("socketNotified", value=False)
-        dev.updateStateOnServer("overrunNotified", value=False)
+        _write_state(dev, "doorNotified",   value=False)
+        _write_state(dev, "socketNotified", value=False)
+        _write_state(dev, "overrunNotified", value=False)
 
     def _enter_off(self, dev):
         """Source device offline → appliance physically powered off
         (wall switch / unplugged). Clears any pending socket-reminder
         timing — when source comes back online we revert to idle.
         """
-        dev.updateStateOnServer("cycleState",     value="off")
-        dev.updateStateOnServer("lowSince",       value=0)
-        dev.updateStateOnServer("doorNotified",   value=False)
-        dev.updateStateOnServer("socketNotified", value=False)
-        dev.updateStateOnServer("overrunNotified", value=False)
+        _write_state(dev, "cycleState",     value="off")
+        _write_state(dev, "lowSince",       value=0)
+        _write_state(dev, "doorNotified",   value=False)
+        _write_state(dev, "socketNotified", value=False)
+        _write_state(dev, "overrunNotified", value=False)
         log(f"{dev.name}: source device offline — appliance powered off (no socket reminder)")
 
     # --------------------------------------------------------
@@ -1367,8 +1390,8 @@ class Plugin(indigo.PluginBase):
         ran_for = (int(time.time()) - started) // 60 if started else 0
         self._reset_to_idle(dev)
         self._clear_cycle_metrics(dev)
-        dev.updateStateOnServer("cycleStartedAt", value=0)
-        dev.updateStateOnServer("lastCycleMinutes", value=0)
+        _write_state(dev, "cycleStartedAt", value=0)
+        _write_state(dev, "lastCycleMinutes", value=0)
         log(f"{dev.name}: reset to idle by hand (was '{was}'"
             + (f", running {ran_for} min" if was in ("running", "finishing") and started else "")
             + "). Nothing recorded for the abandoned cycle.")

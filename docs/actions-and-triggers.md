@@ -36,7 +36,7 @@ Both actions work on one appliance. Add them to an action group, a schedule or a
 
 ### Reset Appliance to Idle
 
-Puts the appliance back to **idle** and forgets the cycle under way, without recording it and without sending anything. Use it to clear a cycle stuck at **running**. The Event Log says what state the appliance was in and, if a cycle was under way, how long it had been running.
+Puts the appliance back to **idle** and forgets the cycle under way, without recording it and without sending anything. Use it to clear a cycle stuck at **running**. If the appliance is showing a meter fault in red, the red stays until the meter reads properly again. The Event Log says what state the appliance was in and, if a cycle was under way, how long it had been running.
 
 ### Send Test Notification
 

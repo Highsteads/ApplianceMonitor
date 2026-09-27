@@ -70,4 +70,4 @@ If the plugin cannot get a trustworthy reading from the meter, the appliance sho
 | **no power state** | The meter no longer has a reading with the name in **Power state name**. |
 | **meter silent** | The meter says it is online but has not reported for longer than you allowed. This only happens if you have switched that check on. |
 
-While it shows red, the appliance stays where it was, so nothing is recorded from a reading that cannot be trusted. The log line appears once and is repeated at most once an hour. When the meter reads properly again, the red clears and the log says the power meter is readable again.
+While it shows red, the appliance stays where it was, so nothing is recorded from a reading that cannot be trusted. The log line appears once and is repeated at most once an hour. Only the meter reading properly again clears the red, and the log then says the power meter is readable again. Resetting the appliance to idle does not clear it.

@@ -48,7 +48,11 @@ class FakeDevice:
         self.errorState = message
         self.error_writes.append(message)
 
-    def updateStateOnServer(self, key, value=None, uiValue=None):
+    def updateStateOnServer(self, key, value=None, uiValue=None, clearErrorState=True):
+        # Real Indigo clears the device's error state on every state write
+        # unless told not to. A fake that skipped this hid a live bug (1.11.0).
+        if clearErrorState:
+            self.errorState = None
         self.states[key] = value
         if uiValue is not None:
             self.states[f"{key}.ui"] = uiValue

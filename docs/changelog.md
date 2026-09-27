@@ -7,6 +7,10 @@ nav_order: 10
 
 The newest version is at the top.
 
+## 1.11.0 — 27 September 2026
+
+When the plugin cannot read an appliance's meter it shows the fault in red on the appliance, but that red could vanish while the fault was still there. Using **Reset Appliance to Idle** cleared it, and nothing put it back, so the device list and Device Health Monitor both went on looking as though all was well. The red now stays until the meter reads properly again, and nothing else clears it.
+
 ## 1.10.0 — 27 September 2026
 
 The help beside **Meter online state key** said you could leave the name alone if your meter has no such reading, but Indigo then refused to save the appliance. The name comes filled in with the one Shelly Direct uses, so anyone with a different meter had to find and clear that box before a new appliance would save. The plugin now accepts the name, ignores it, and says so once in the log when you save.
