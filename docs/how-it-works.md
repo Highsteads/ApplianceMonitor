@@ -49,7 +49,7 @@ If the power rises to the run threshold again before then, a new cycle has start
 
 ## When the meter goes offline
 
-Many plugs and meters say whether they can be reached. Shelly Direct's plugs have a reading called `deviceOnline` for this, and the plugin looks for it to start with.
+Many plugs and meters say whether they can be reached. Shelly Direct's plugs have a reading called `deviceOnline` for this, and the plugin looks for it to start with. If your meter has no reading by that name, the plugin treats it as always online.
 
 If the meter says it is offline while the appliance is **idle**, **finishing** or **doorWait**, the plugin takes it that the appliance has been switched off at the wall. The appliance shows **off**, and any socket reminder still to come is cancelled, because the socket is already off. If the cycle was **finishing**, it is recorded first, but no door-ready alert follows. When the meter comes back, the appliance goes back to **idle**.
 

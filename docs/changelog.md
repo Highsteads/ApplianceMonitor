@@ -7,6 +7,10 @@ nav_order: 10
 
 The newest version is at the top.
 
+## 1.10.0 — 27 September 2026
+
+The help beside **Meter online state key** said you could leave the name alone if your meter has no such reading, but Indigo then refused to save the appliance. The name comes filled in with the one Shelly Direct uses, so anyone with a different meter had to find and clear that box before a new appliance would save. The plugin now accepts the name, ignores it, and says so once in the log when you save.
+
 ## 1.9.3 — 7 September 2026
 
 The appliance's settings window was drawn wider than it could show, so the help beside several settings was cut off part-way through. Fifteen of those help notes now sit on their own lines below their settings, where they wrap and can be read in full. No setting or behaviour changed.

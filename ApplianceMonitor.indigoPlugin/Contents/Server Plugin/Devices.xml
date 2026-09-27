@@ -90,7 +90,7 @@
                 <Label>Meter online state key:</Label>
             </Field>
             <Field id="label_sourceOnlineStateKey_info" type="label">
-                <Label>The state on the meter that says whether it is reachable. ShellyDirect calls it deviceOnline. When it reads false the appliance drops to "off" and any pending socket reminder is cancelled. If your meter has no such state, leave this as it is — a state that does not exist is simply ignored. Clear the field to switch the check off altogether.</Label>
+                <Label>The state on the meter that says whether it is reachable. ShellyDirect calls it deviceOnline. When it reads false the appliance drops to "off" and any pending socket reminder is cancelled. If your meter has no such state, leave this as it is — a state that does not exist is simply ignored, and the log says so once when you save. Clear the field to switch the check off altogether.</Label>
             </Field>
 
             <Field id="sourceStaleMinutes" type="textfield" defaultValue="0">

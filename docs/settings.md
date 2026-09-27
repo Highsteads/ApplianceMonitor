@@ -45,7 +45,7 @@ The starting names are the ones my Shelly Direct plugin uses. For another meter,
 
 | Setting | What it does | To start with |
 |---|---|---|
-| **Meter online state key** | The name of the meter's reading that says whether it can be reached. When it says the meter is offline, the appliance shows **off** and any socket reminder still to come is cancelled, as the [How it works](how-it-works.md) page explains. If your meter has no such reading, clear the box, which switches the check off. Indigo will not save a name the meter does not have. | `deviceOnline` |
+| **Meter online state key** | The name of the meter's reading that says whether it can be reached. When it says the meter is offline, the appliance shows **off** and any socket reminder still to come is cancelled, as the [How it works](how-it-works.md) page explains. If your meter has no such reading, you can leave the name as it is. The plugin ignores a name the meter does not have, and says so once in the log when you save. Clear the box if you would rather switch the check off without that note. | `deviceOnline` |
 | **Treat the meter as faulty after silence of (min)** | Shows **meter silent** in red if the meter says it is online but has not been in touch for this long. It goes by the last time the meter reported successfully, or the last time one of its readings changed if Indigo has no record of that. Only use it with a meter that reports at regular times. One that only reports when a reading changes goes quiet whenever the appliance is off, and would then look faulty. 0 switches it off. | 0 |
 
 ### Alert timings
@@ -84,7 +84,7 @@ The three **Notify on** tick boxes also decide which alerts are emailed.
 When you click **Save**, the plugin checks the settings and Indigo will not close the window until anything wrong is put right. It refuses:
 
 - no meter chosen, or the appliance chosen as its own meter,
-- a power, energy or online state name the meter does not have, listing the names it does have,
+- a power or energy state name the meter does not have, listing the names it does have,
 - a rate variable that does not exist,
 - an email address that is clearly not one,
 - a run threshold of 0 or less, or an idle threshold that is not lower than it,

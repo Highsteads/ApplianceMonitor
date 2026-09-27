@@ -6,8 +6,9 @@
 #              which was hardcoded to ShellyDirect's name.
 # Author:      CliveS & Claude Opus 5
 # Date:        27-07-2026
-# Version:     1.0
+# Version:     1.1
 
+import logging
 from datetime import datetime, timedelta
 
 import pytest
@@ -182,13 +183,52 @@ def test_the_stale_setting_is_validated(plugin, appliance, value, ok):
     assert plugin.validateDeviceConfigUi(values, "applianceMonitor", appliance.id)[0] is ok
 
 
-def test_an_online_key_the_meter_lacks_is_refused_at_save_time(plugin, appliance):
-    """It would never fire — exactly the trap this release closes — so say so
-    while the dialog is open rather than letting it fail silently for months."""
+def test_an_online_key_the_meter_lacks_is_accepted_at_save_time(plugin, appliance):
+    """The help text promises a state the meter lacks is simply ignored, and the
+    field defaults to ShellyDirect's name, so refusing it blocked every other
+    meter's owner from saving a new appliance (1.9.0-1.9.3)."""
     values = dict(appliance.pluginProps)
     values["sourceOnlineStateKey"] = "notAState"
-    ok, _, errors = plugin.validateDeviceConfigUi(values, "applianceMonitor", appliance.id)
-    assert ok is False and "sourceOnlineStateKey" in errors
+    result = plugin.validateDeviceConfigUi(values, "applianceMonitor", appliance.id)
+    assert result[0] is True
+
+
+def test_a_missing_online_key_is_noted_once_at_info_on_save(plugin, appliance, caplog):
+    """Said once, when the choice is made, and never as a warning or error."""
+    values = dict(appliance.pluginProps)
+    values["sourceOnlineStateKey"] = "notAState"
+    with caplog.at_level(logging.DEBUG, logger="appliancemonitor.test"):
+        plugin.validateDeviceConfigUi(values, "applianceMonitor", appliance.id)
+    notes = [r for r in caplog.records if "notAState" in r.getMessage()]
+    assert len(notes) == 1
+    assert notes[0].levelno == logging.INFO
+    assert "Test Appliance" in notes[0].getMessage()
+
+
+def test_a_missing_online_key_is_not_noted_on_every_tick(plugin, appliance, caplog):
+    appliance.pluginProps["sourceOnlineStateKey"] = "notAState"
+    with caplog.at_level(logging.DEBUG, logger="appliancemonitor.test"):
+        for _ in range(5):
+            plugin._tick_device(appliance)
+    assert not [r for r in caplog.records if "notAState" in r.getMessage()]
+
+
+def test_an_online_key_the_meter_has_saves_without_a_note(plugin, appliance, caplog):
+    values = dict(appliance.pluginProps)
+    values["sourceOnlineStateKey"] = "deviceOnline"
+    with caplog.at_level(logging.DEBUG, logger="appliancemonitor.test"):
+        assert plugin.validateDeviceConfigUi(values, "applianceMonitor", appliance.id)[0] is True
+    assert not [r for r in caplog.records if "offline check is off" in r.getMessage()]
+
+
+def test_no_note_when_the_dialog_is_refused_for_another_reason(plugin, appliance, caplog):
+    """The note is about a choice being saved; a refused dialog saved nothing."""
+    values = dict(appliance.pluginProps)
+    values["sourceOnlineStateKey"] = "notAState"
+    values["runThresholdWatts"]    = "0"
+    with caplog.at_level(logging.DEBUG, logger="appliancemonitor.test"):
+        assert plugin.validateDeviceConfigUi(values, "applianceMonitor", appliance.id)[0] is False
+    assert not [r for r in caplog.records if "notAState" in r.getMessage()]
 
 
 def test_a_blank_online_key_saves_cleanly(plugin, appliance):

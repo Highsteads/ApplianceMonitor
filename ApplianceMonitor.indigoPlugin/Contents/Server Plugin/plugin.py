@@ -5,9 +5,15 @@
 #              by a power-monitoring device (e.g. Shelly). Sends Pushover
 #              notifications directly and also fires three Indigo custom
 #              events: cycleStarted, doorReady, socketReminder.
-# Author:      CliveS & Claude Opus 5
-# Date:        28-07-2026
-# Version:     1.9.3
+# Author:      CliveS & Claude Opus 5, Claude Opus 5.5
+# Date:        27-09-2026
+# Version:     1.10.0
+#
+# v1.10.0 (27-09-2026): a Meter online state key the meter does not have is
+# ACCEPTED at save time and ignored (one INFO note when the dialog is saved),
+# as the dialog help always promised. 1.9.0-1.9.3 refused it, and since the
+# field defaults to ShellyDirect's deviceOnline that blocked every other
+# meter's owner from saving a new appliance until they cleared it.
 #
 # v1.9.1 (28-07-2026): ORDERING FIX to the v1.9.0 freshness check, found within
 # hours by testing against real hardware once the metering plugs came back.
@@ -237,7 +243,7 @@ except ImportError:
 # ============================================================
 
 PLUGIN_ID       = "com.clives.indigoplugin.appliancemonitor"
-PLUGIN_VERSION  = "1.9.3"
+PLUGIN_VERSION  = "1.10.0"
 PUSHOVER_PLUGIN = "io.thechad.indigoplugin.pushover"
 TICK_SECONDS    = 20
 
@@ -586,18 +592,24 @@ class Plugin(indigo.PluginBase):
                 f"Must be longer than the {debounce_min} min end-of-cycle debounce, "
                 f"otherwise every normal cycle looks like an overrun."
             )
-        # The online state key is free text like the others. Blank switches the
-        # check off, which is legitimate; a name the meter does not have is not
-        # an error either, but it is worth saying so rather than silently never
-        # firing — the exact trap this release fixes.
-        online_key = (valuesDict.get("sourceOnlineStateKey") or "").strip()
-        if online_key and src_id in indigo.devices and online_key not in indigo.devices[src_id].states:
-            errors["sourceOnlineStateKey"] = (
-                f"'{indigo.devices[src_id].name}' has no state called '{online_key}', so the "
-                f"offline check would never fire. Clear the field to switch the check off."
-            )
         if errors:
             return (False, valuesDict, errors)
+        # The online state key is free text like the others, but unlike them a
+        # name the meter does not have is NOT an error. The field defaults to
+        # ShellyDirect's deviceOnline and most other meters have no such state,
+        # so refusing it (as 1.9.0-1.9.3 did) blocked every non-Shelly user from
+        # saving a new appliance until they found and cleared this one field —
+        # while the help text promised the opposite. The tick already treats a
+        # missing state as "no opinion", so accept it and say so ONCE, here,
+        # when the choice is made, rather than on every tick or every restart.
+        online_key = (valuesDict.get("sourceOnlineStateKey") or "").strip()
+        if online_key and online_key not in indigo.devices[src_id].states:
+            dev_name = indigo.devices[_i(devId, 0)].name if _i(devId, 0) in indigo.devices else "this appliance"
+            self.logger.info(
+                f"[{dev_name}] meter '{indigo.devices[src_id].name}' has no state called "
+                f"'{online_key}', so the offline check is off for this appliance. That is fine "
+                f"for a meter that never reports it. Clear the field if you would rather not "
+                f"see this note.")
         return (True, valuesDict)
 
     # --------------------------------------------------------
